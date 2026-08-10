@@ -1,0 +1,40 @@
+# Share of Voice / search visibility keywords.
+# Implementation assumption: keyword list was NOT supplied by Bridge AI.
+# Small, defensible gaming purchase-intent sets per retailer/country.
+# See docs/assumptions.md for rationale.
+
+keywords:
+  newegg:
+    country_code: US
+    language: en
+    queries:
+      - gaming laptop
+      - gaming desktop
+      - gaming pc
+      - rtx gaming laptop
+      - ryzen gaming laptop
+      - intel gaming laptop
+      - gaming workstation
+      - graphics card gaming
+      - desktop processor gaming
+
+  mercadolibre:
+    country_code: BR
+    language: pt-BR
+    queries:
+      - notebook gamer
+      - pc gamer
+      - desktop gamer
+      - notebook gamer rtx
+      - notebook gamer ryzen
+      - notebook gamer intel
+      - workstation gamer
+      - placa de video gamer
+      - processador gamer
+
+share_of_voice:
+  # Implementation assumption: SoV = brand appearances in top N organic results
+  # for configured keywords, averaged across the keyword set.
+  top_n_results: 20
+  attribute_by: brand
+  unknown_handling: exclude_from_numerator_include_in_denominator

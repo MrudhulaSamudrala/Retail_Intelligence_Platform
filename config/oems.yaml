@@ -1,0 +1,31 @@
+# Tracked OEMs (system manufacturers). Independent of Brand.
+
+oems:
+  - code: dell
+    name: Dell
+    aliases: [dell, alienware]
+  - code: hp
+    name: HP
+    aliases: [hp, hewlett-packard, hewlett packard, omen]
+  - code: lenovo
+    name: Lenovo
+    aliases: [lenovo, thinkpad, ideapad, legion, yoga]
+  - code: acer
+    name: Acer
+    aliases: [acer, predator, nitro]
+  - code: asus
+    name: Asus
+    aliases: [asus, asustek, rog, tuf]
+  - code: msi
+    name: MSI
+    aliases: [msi, micro-star]
+  - code: apple
+    name: Apple
+    aliases: [apple, macbook, imac, mac mini, mac studio, mac pro]
+
+# OEM attribution hierarchy (implementation assumption):
+# 1. Explicit manufacturer/brand field
+# 2. Product title
+# 3. URL/domain metadata (when appropriate)
+# 4. Specification information
+# Standalone CPU/GPU components → oem = null

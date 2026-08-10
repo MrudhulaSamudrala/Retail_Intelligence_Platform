@@ -1,0 +1,39 @@
+# Retail platforms in scope for this assessment.
+
+retailers:
+  - code: newegg
+    name: Newegg
+    country_code: US
+    country_name: United States
+    currency: USD
+    base_url: https://www.newegg.com
+    locale: en-US
+    collector_module: collector.retailers.newegg
+    enabled: true
+    collection:
+      pricing_promotions_per_day: 3
+      audits_per_day: 3
+      banners_per_day: 1
+      share_of_voice_per_day: 1
+
+  - code: mercadolibre
+    name: Mercado Libre
+    country_code: BR
+    country_name: Brazil
+    currency: BRL
+    base_url: https://www.mercadolivre.com.br
+    locale: pt-BR
+    collector_module: collector.retailers.mercadolibre
+    enabled: true
+    collection:
+      pricing_promotions_per_day: 3
+      audits_per_day: 3
+      banners_per_day: 1
+      share_of_voice_per_day: 1
+
+scheduling:
+  # Cron expressions are documented for Render Cron Jobs (UTC).
+  # Implementation assumption: three evenly spaced pricing/audit windows.
+  pricing_audit_cron: "0 2,10,18 * * *"
+  banner_cron: "0 14 * * *"
+  timezone: UTC

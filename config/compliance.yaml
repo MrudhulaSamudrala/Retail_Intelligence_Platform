@@ -1,0 +1,71 @@
+# Retailer audit checks and Overall Brand Compliance Score weights.
+# Individual S1–P5 check definitions are implementation assumptions where the
+# brief did not supply detailed criteria — see docs/assumptions.md.
+
+audit_checks:
+  - code: S1
+    name: Search visibility of brand products
+    group: search
+    description: >
+      Tracked brand products appear in relevant category/search results
+      with correct brand attribution signals.
+  - code: S2
+    name: Sort and filter brand discoverability
+    group: search
+    description: >
+      Brand can be discovered via retailer sort/filter facets where available;
+      brand is not systematically suppressed in default gaming browsing paths.
+  - code: P1
+    name: Accurate product title branding
+    group: product_page
+    description: >
+      Product title correctly reflects processor/platform brand when applicable.
+  - code: P2
+    name: Specification accuracy
+    group: product_page
+    description: >
+      Key specifications (CPU/GPU/SoC) are present and consistent with the title.
+  - code: P3
+    name: Image and merchandising consistency
+    group: product_page
+    description: >
+      Primary imagery and merchandising copy are consistent with the listed
+      product identity and brand.
+  - code: P4
+    name: Promotion claim validity
+    group: product_page
+    description: >
+      Promotional claims on the product page are coherent with observed price
+      and badge signals (no contradictory discount presentation).
+  - code: P5
+    name: Badge and endorsement relevance
+    group: product_page
+    description: >
+      Displayed badges are detectable and classified for relevance to brand
+      positioning (misleading or mismatched badges fail when evidence is clear).
+
+# Equal weighting across the seven audit checks (implementation assumption).
+check_weights:
+  S1: 0.142857
+  S2: 0.142857
+  P1: 0.142857
+  P2: 0.142857
+  P3: 0.142857
+  P4: 0.142857
+  P5: 0.142857
+
+# Overall Brand Compliance Score segment weights (from brief).
+segment_weights:
+  notebook: 0.85
+  desktop: 0.15
+
+# UNKNOWN handling (implementation assumption):
+# UNKNOWN is excluded from the compliance denominator and reported separately
+# as coverage / data completeness.
+unknown_handling:
+  exclude_from_score_denominator: true
+  report_coverage_separately: true
+  valid_results:
+    - PASS
+    - FAIL
+    - UNKNOWN

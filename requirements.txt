@@ -1,0 +1,23 @@
+# BridgeAI foundation dependencies
+# Pin ranges suitable for a reproducible interview assessment environment.
+
+# Database
+SQLAlchemy>=2.0.36,<3.0
+psycopg[binary]>=3.2.3,<4.0
+greenlet>=3.1.1,<4.0
+
+# Data / config
+pandas>=2.2.3,<3.0
+PyYAML>=6.0.2,<7.0
+python-dotenv>=1.0.1,<2.0
+openpyxl>=3.1.5,<4.0
+
+# Collection (installed; scrapers not implemented in foundation phase)
+playwright>=1.49.0,<2.0
+
+# Dashboard / visualization (installed; dashboard UI not built in foundation phase)
+streamlit>=1.41.0,<2.0
+plotly>=5.24.1,<6.0
+
+# Testing
+pytest>=8.3.4,<9.0

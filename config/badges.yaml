@@ -1,0 +1,108 @@
+# Promotional / positioning badges to detect on listings and product pages.
+# Detection patterns are retailer-agnostic starting points; collectors may
+# extend with retailer-specific selectors without hardcoding brand lists.
+
+badges:
+  - code: best_seller
+    name: Best Seller
+    relevance: high
+    patterns:
+      - best seller
+      - best-seller
+      - mais vendido
+      - bestselling
+
+  - code: top_rated
+    name: Top Rated
+    relevance: medium
+    patterns:
+      - top rated
+      - top-rated
+      - melhor avaliado
+
+  - code: sponsored
+    name: Sponsored
+    relevance: contextual
+    patterns:
+      - sponsored
+      - patrocinado
+      - ad
+      - anúncio
+
+  - code: exclusive
+    name: Exclusive
+    relevance: high
+    patterns:
+      - exclusive
+      - exclusivo
+      - only at
+      - só na
+
+  - code: new_arrival
+    name: New Arrival
+    relevance: medium
+    patterns:
+      - new arrival
+      - just arrived
+      - novo
+      - lançamento
+
+  - code: limited_time
+    name: Limited Time Deal
+    relevance: high
+    patterns:
+      - limited time
+      - flash deal
+      - oferta por tempo limitado
+      - por tempo limitado
+
+  - code: free_shipping
+    name: Free Shipping
+    relevance: medium
+    patterns:
+      - free shipping
+      - frete grátis
+      - frete gratis
+
+  - code: rebate
+    name: Mail-in / Instant Rebate
+    relevance: high
+    patterns:
+      - rebate
+      - mail-in
+      - instant rebate
+      - cashback
+
+  - code: bundle
+    name: Bundle / Combo
+    relevance: medium
+    patterns:
+      - bundle
+      - combo
+      - kit
+
+  - code: brand_official
+    name: Official / Brand Store
+    relevance: high
+    patterns:
+      - official store
+      - loja oficial
+      - authorized
+      - autorizado
+
+relevance_rules:
+  # Implementation assumption: a badge is "relevant" when it materially
+  # affects purchase consideration or brand positioning for tracked brands.
+  relevant_codes:
+    - best_seller
+    - exclusive
+    - limited_time
+    - rebate
+    - brand_official
+  contextual_codes:
+    - sponsored
+  informational_codes:
+    - top_rated
+    - new_arrival
+    - free_shipping
+    - bundle

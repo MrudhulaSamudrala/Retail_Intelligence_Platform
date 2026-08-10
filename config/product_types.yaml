@@ -1,0 +1,94 @@
+# Product type taxonomy and inclusion / exclusion rules.
+
+product_types:
+  - code: notebook
+    name: Notebook
+    aliases: [notebook, notebook pc, laptop, chromebook, ultrabook, macbook]
+    included_in_compliance_weighting: true
+    compliance_segment_weight: 0.85
+
+  - code: desktop
+    name: Desktop
+    aliases: [desktop, desktop pc, tower, aio, all-in-one, imac, mac mini, mac studio]
+    included_in_compliance_weighting: true
+    compliance_segment_weight: 0.15
+
+  - code: workstation
+    name: Workstation
+    aliases: [workstation, mobile workstation]
+    included_in_compliance_weighting: false
+
+  - code: tablet
+    name: Tablet
+    aliases: [tablet, ipad]
+    included_in_compliance_weighting: false
+
+  - code: cpu
+    name: CPU
+    aliases: [cpu, processor, desktop processor]
+    included_in_compliance_weighting: false
+    segment: gaming_components
+    oem_required: false
+
+  - code: gpu
+    name: GPU
+    aliases: [gpu, graphics card, video card, discrete graphics]
+    included_in_compliance_weighting: false
+    segment: gaming_components
+    oem_required: false
+
+excluded_categories:
+  - monitors
+  - keyboards
+  - cameras
+  - gift cards
+  - accessories
+  - mice
+  - headsets
+  - speakers
+  - docking stations
+  - laptop bags
+  - cables
+  - adapters
+  - memory modules
+  - storage drives
+  - motherboards
+  - power supplies
+  - cases
+  - cooling
+
+# Classification: deterministic rules from category → title → specifications.
+# If ambiguous → UNKNOWN; preserve raw category evidence.
+unknown_code: UNKNOWN
+
+# Gaming scope filter used for Share of Shelf (implementation assumption).
+share_of_shelf:
+  scope: gaming
+  include_out_of_stock: true
+  deduplicate_by: retailer_sku
+  eligible_product_types:
+    - notebook
+    - desktop
+    - workstation
+    - tablet
+    - cpu
+    - gpu
+  gaming_signals:
+    title_keywords:
+      - gaming
+      - gamer
+      - rog
+      - tuf
+      - legion
+      - omen
+      - predator
+      - nitro
+      - alienware
+      - geforce
+      - radeon rx
+      - rtx
+      - rx 7
+      - rx 6
+    category_keywords:
+      - gaming
+      - gamer

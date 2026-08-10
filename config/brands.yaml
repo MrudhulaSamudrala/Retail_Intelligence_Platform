@@ -1,0 +1,86 @@
+# Tracked computing brands (chip / platform manufacturers).
+# Brand is independent of OEM. Example: ASUS laptop with AMD Ryzen → brand=AMD, oem=Asus.
+
+brands:
+  - code: intel
+    name: Intel
+    aliases:
+      - intel
+      - intel®
+      - intel core
+      - intel pentium
+      - intel celeron
+      - intel arc
+    processor_families:
+      - core ultra
+      - core i9
+      - core i7
+      - core i5
+      - core i3
+      - pentium
+      - celeron
+      - xeon
+      - arc
+
+  - code: amd
+    name: AMD
+    aliases:
+      - amd
+      - amd®
+      - amd ryzen
+      - amd radeon
+    processor_families:
+      - ryzen ai
+      - ryzen
+      - threadripper
+      - athlon
+      - radeon rx
+      - radeon
+
+  - code: qualcomm
+    name: Qualcomm
+    aliases:
+      - qualcomm
+      - qualcomm®
+      - snapdragon
+    processor_families:
+      - snapdragon x elite
+      - snapdragon x plus
+      - snapdragon x
+      - snapdragon
+
+  - code: apple
+    name: Apple
+    aliases:
+      - apple
+      - apple silicon
+      - m1
+      - m2
+      - m3
+      - m4
+    processor_families:
+      - apple m4
+      - apple m3
+      - apple m2
+      - apple m1
+      - m4
+      - m3
+      - m2
+      - m1
+
+# Attribution hierarchy (implementation assumption — see docs/assumptions.md):
+# 1. Explicit processor/SoC manufacturer
+# 2. Processor family
+# 3. Product title
+# 4. Specification table
+# 5. Description
+# If still ambiguous → UNKNOWN (never invent a brand).
+
+attribution:
+  unknown_code: UNKNOWN
+  hierarchy:
+    - explicit_processor_manufacturer
+    - processor_family
+    - product_title
+    - specification_table
+    - description
