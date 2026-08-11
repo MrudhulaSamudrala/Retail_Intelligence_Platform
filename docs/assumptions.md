@@ -94,13 +94,13 @@ Else `UNKNOWN` (never invent a brand).
 
 ---
 
-## A6 — OEM attribution hierarchy and null OEM
+## A6 — OEM attribution hierarchy and UNKNOWN OEM
 
-**Ambiguity:** How to assign OEM; what to do for components.
+**Ambiguity:** How to assign OEM; what to do for components and weak matches.
 
-**Assumption:** Order = explicit manufacturer field → title → URL/domain metadata → specs. Standalone CPU/GPU → `oem = NULL`.
+**Assumption:** Order = explicit manufacturer field → title → specifications → description. Matching uses alphanumeric token boundaries. Insufficient or conflicting evidence → `UNKNOWN`. Standalone CPU/GPU product types → `OEM = UNKNOWN` (components are not system OEMs). Brand and OEM remain independent classifiers (`collector/classification.py`).
 
-**Rationale:** Components are not system OEMs; forcing an OEM would fabricate structure.
+**Rationale:** Prefer UNKNOWN over fabricated OEM structure; prevents false positives such as `hp` inside `HDMI`.
 
 **Config:** `config/oems.yaml`
 

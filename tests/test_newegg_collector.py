@@ -69,7 +69,7 @@ def test_brand_oem_and_product_type_detection() -> None:
     cpu_title = "AMD Ryzen 7 7800X3D Processor"
     assert detect_brand(cpu_title) == "AMD"
     assert detect_product_type(title=cpu_title, category_raw="CPU") == "cpu"
-    assert detect_oem(cpu_title, product_type="cpu") is None
+    assert detect_oem(cpu_title, product_type="cpu") == UNKNOWN
 
     # "hp" must not match inside "HDMI"
     msi_title = "MSI Stealth 16 AI Intel Core Ultra7 HDMI ports"

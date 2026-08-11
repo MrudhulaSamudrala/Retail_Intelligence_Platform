@@ -24,8 +24,10 @@ oems:
     aliases: [apple, macbook, imac, mac mini, mac studio, mac pro]
 
 # OEM attribution hierarchy (implementation assumption):
-# 1. Explicit manufacturer/brand field
+# 1. Explicit manufacturer field
 # 2. Product title
-# 3. URL/domain metadata (when appropriate)
-# 4. Specification information
-# Standalone CPU/GPU components → oem = null
+# 3. Specification information
+# 4. Description
+# If insufficient or conflicting evidence → UNKNOWN (never guess).
+# Standalone CPU/GPU components → OEM = UNKNOWN (not a system OEM).
+# Matching uses alphanumeric token boundaries (e.g. "hp" must not match inside "hdmi").

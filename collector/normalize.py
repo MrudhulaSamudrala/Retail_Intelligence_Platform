@@ -7,9 +7,25 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
-from collector.config_loader import load_brands, load_oems, load_product_types
+from collector.classification import (
+    UNKNOWN,
+    classify_product,
+    detect_brand,
+    detect_oem,
+)
+from collector.config_loader import load_product_types
 
-UNKNOWN = "UNKNOWN"
+# Re-export classification helpers for existing imports.
+__all__ = [
+    "UNKNOWN",
+    "NormalizedProduct",
+    "detect_brand",
+    "detect_oem",
+    "detect_product_type",
+    "parse_price",
+    "normalize_availability",
+    "build_normalized_product",
+]
 
 
 @dataclass
@@ -39,56 +55,6 @@ class NormalizedProduct:
     ram: Optional[str] = None
     storage: Optional[str] = None
     raw_payload: dict[str, Any] = field(default_factory=dict)
-
-
-def _compile_aliases(items: list[dict[str, Any]], key: str = "aliases") -> list[tuple[str, list[str]]]:
-    compiled: list[tuple[str, list[str]]] = []
-    for item in items:
-        name = item["name"]
-        aliases = [a.lower() for a in item.get(key, [])]
-        families = [f.lower() for f in item.get("processor_families", [])]
-        compiled.append((name, sorted(set(aliases + families), key=len, reverse=True)))
-    return compiled
-
-
-def _alias_matches(alias: str, blob: str) -> bool:
-    """Match aliases in text; use word boundaries for short tokens (e.g. hp vs hdmi)."""
-    alias = alias.lower().strip()
-    if not alias or not blob:
-        return False
-    if len(alias) <= 3:
-        return re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", blob) is not None
-    return alias in blob
-
-
-def detect_brand(*texts: Optional[str]) -> str:
-    """Brand hierarchy approximated over concatenated evidence strings."""
-    brands = load_brands().get("brands", [])
-    blob = " ".join(t for t in texts if t).lower()
-    if not blob:
-        return UNKNOWN
-
-    # Prefer explicit manufacturer aliases, then processor families (already merged).
-    for name, aliases in _compile_aliases(brands):
-        for alias in aliases:
-            if _alias_matches(alias, blob):
-                return name
-    return UNKNOWN
-
-
-def detect_oem(*texts: Optional[str], product_type: Optional[str] = None) -> Optional[str]:
-    if product_type in {"cpu", "gpu"}:
-        return None
-
-    oems = load_oems().get("oems", [])
-    blob = " ".join(t for t in texts if t).lower()
-    if not blob:
-        return None
-    for item in oems:
-        for alias in sorted(item.get("aliases", []), key=len, reverse=True):
-            if _alias_matches(alias.lower(), blob):
-                return item["name"]
-    return None
 
 
 def detect_product_type(
@@ -167,12 +133,24 @@ def build_normalized_product(
     ram: Optional[str] = None,
     storage: Optional[str] = None,
     specs: Optional[dict[str, str]] = None,
+    manufacturer: Optional[str] = None,
+    description: Optional[str] = None,
     raw_payload: Optional[dict[str, Any]] = None,
 ) -> NormalizedProduct:
     specs = specs or {}
     product_type = detect_product_type(category_raw=category_raw, title=title, specs=specs)
-    brand = detect_brand(title, processor, gpu, category_raw, " ".join(specs.values()))
-    oem = detect_oem(title, category_raw, " ".join(specs.values()), product_type=product_type)
+
+    # Brand/OEM classification is independent and lives in collector.classification.
+    classified = classify_product(
+        title=title,
+        processor=processor,
+        manufacturer=manufacturer,
+        specifications=specs,
+        description=description,
+        product_type=product_type,
+    )
+    brand = classified.brand
+    oem = classified.oem
 
     price_amount = parse_price(price_text)
     list_price = parse_price(list_price_text)
@@ -196,6 +174,8 @@ def build_normalized_product(
             "ram": ram,
             "storage": storage,
             "specs": specs,
+            "brand_reason": classified.brand_reason,
+            "oem_reason": classified.oem_reason,
         }
     )
 
