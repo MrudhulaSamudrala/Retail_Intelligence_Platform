@@ -14,6 +14,20 @@ from database.repositories import (
     ObservationRepository,
     ProductRepository,
 )
+from collector.audit.models import AuditCheckResult, ListingEvidence
+from collector.audit.engine import (
+    build_context_for_product,
+    build_product_evidence_from_normalized,
+    persist_audit_results,
+    run_audits,
+)
+from collector.parsers.badges import (
+    BadgeEvaluation,
+    BadgeEvidence,
+    detect_promotional_badges,
+    evaluate_badges,
+    evaluation_rows,
+)
 
 logger = logging.getLogger("collector.persist")
 
@@ -123,3 +137,124 @@ class CollectionPersister:
             },
         )
         return row.id
+
+    def save_badges(
+        self,
+        product: NormalizedProduct,
+        *,
+        product_id: int,
+        collection_run_id: int,
+        evidence: BadgeEvidence | None = None,
+        include_promotional: bool = True,
+        use_ocr_fallback: bool | None = None,
+        observed_at: datetime | None = None,
+        screenshot_path: str | None = None,
+    ) -> BadgeEvaluation:
+        """Evaluate platform badges and append rows to the ``badges`` table.
+
+        Uses DOM/text/alt/title evidence first. OCR is only consulted when the
+        optional fallback layer is enabled.
+        """
+        observed = observed_at or datetime.now(timezone.utc)
+        evidence = evidence or BadgeEvidence(source_url=product.source_url)
+        if evidence.source_url is None:
+            evidence.source_url = product.source_url
+        if screenshot_path and not evidence.screenshot_path:
+            evidence.screenshot_path = screenshot_path
+
+        specs = None
+        if product.raw_payload:
+            specs = product.raw_payload.get("specifications") or product.raw_payload.get(
+                "specs"
+            )
+
+        evaluation = evaluate_badges(
+            processor=product.processor,
+            title=product.title,
+            specifications=specs,
+            brand=product.brand,
+            evidence=evidence,
+            use_ocr_fallback=use_ocr_fallback,
+        )
+
+        rows = evaluation_rows(evaluation)
+        if include_promotional:
+            promo_texts = list(evidence.badge_texts) + list(evidence.element_texts)
+            if evidence.page_text:
+                promo_texts.append(evidence.page_text)
+            rows.extend(detect_promotional_badges(promo_texts))
+
+        for row in rows:
+            self.observations.add_badge(
+                product_id=product_id,
+                collection_run_id=collection_run_id,
+                observed_at=observed,
+                badge_code=row["badge_code"],
+                badge_text=row["badge_text"],
+                is_relevant=row.get("is_relevant"),
+                relevance_notes=row.get("relevance_notes"),
+                screenshot_path=evidence.screenshot_path,
+                source_url=evidence.source_url or product.source_url,
+            )
+
+        self.session.flush()
+        logger.info(
+            "badges_persisted",
+            extra={
+                "event": "badges_persisted",
+                "sku": product.retailer_sku,
+                "product_id": product_id,
+                "expected": evaluation.expected,
+                "detected": evaluation.detected,
+                "correct": evaluation.correct,
+                "missing": evaluation.missing,
+                "ambiguous": evaluation.ambiguous,
+                "count": len(rows),
+            },
+        )
+        return evaluation
+
+    def save_audits(
+        self,
+        product: NormalizedProduct,
+        *,
+        product_id: int,
+        collection_run_id: int,
+        listing: ListingEvidence | None = None,
+        badge_texts: list[str] | None = None,
+        brand_media_signals: list[str] | None = None,
+        oem_media_signals: list[str] | None = None,
+        page_text: str | None = None,
+        badges_inspected: bool = False,
+        media_inspected: bool = False,
+        selectors_used: list[str] | None = None,
+        screenshot_path: str | None = None,
+        observed_at: datetime | None = None,
+    ) -> list[AuditCheckResult]:
+        """Evaluate S1–P5 from provided evidence and append ``retailer_audits`` rows.
+
+        Does not compute overall compliance score. Missing badge/media inspection
+        flags remain UNKNOWN rather than PASS.
+        """
+        product_evidence = build_product_evidence_from_normalized(
+            product,
+            badge_texts=badge_texts,
+            brand_media_signals=brand_media_signals,
+            oem_media_signals=oem_media_signals,
+            page_text=page_text,
+            badges_inspected=badges_inspected,
+            media_inspected=media_inspected,
+            selectors_used=selectors_used,
+            screenshot_path=screenshot_path,
+        )
+        ctx = build_context_for_product(
+            product,
+            product_id=product_id,
+            collection_run_id=collection_run_id,
+            listing=listing,
+            product_evidence=product_evidence,
+            observed_at=observed_at,
+        )
+        results = run_audits(ctx)
+        persist_audit_results(self.session, ctx, results)
+        return results

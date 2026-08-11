@@ -75,27 +75,27 @@ Standalone CPU/GPU components typically have **OEM = NULL**.
 
 ## Retailer audits (S1, S2, P1–P5)
 
-Checks are defined in `config/compliance.yaml`.
+Checks follow the project brief and are implemented in `collector/audit/`:
 
-| Code | Focus |
+| Code | Brief definition |
 |---|---|
-| S1 | Search visibility of brand products |
-| S2 | Sort/filter brand discoverability |
-| P1 | Accurate product title branding |
-| P2 | Specification accuracy |
-| P3 | Image / merchandising consistency |
-| P4 | Promotion claim validity |
-| P5 | Badge / endorsement relevance |
+| S1 | Listing page title includes brand name and/or brand-specific processor line |
+| S2 | Brand badge is present on the listing tile |
+| P1 | Product page title includes brand name, processor line or generation |
+| P2 | Brand badge is present on the product page |
+| P3 | Brand or processor line appears in the specification table |
+| P4 | Brand-led rich media is present |
+| P5 | OEM rich media is present |
 
 **Results:** `PASS` | `FAIL` | `UNKNOWN`
 
-- `PASS` = successful compliance
-- `FAIL` = observed non-compliance
-- `UNKNOWN` = insufficient evidence / collection failure
+- `PASS` = evidence supports compliance for that check
+- `FAIL` = evidence is present and does not support compliance
+- `UNKNOWN` = insufficient evidence / collection or inspection failure
 
-**UNKNOWN handling (assumed):** excluded from the compliance score denominator; coverage reported separately. UNKNOWN never auto-converts to PASS or FAIL.
+**UNKNOWN handling (assumed):** excluded from the compliance score denominator; coverage reported separately. UNKNOWN never auto-converts to PASS or FAIL. Missing information must not be treated as PASS.
 
-Detailed check criteria beyond the brief are **implementation assumptions** and are configurable.
+Overall Brand Compliance Score is **not** computed in the audit-engine phase; individual checks are validated first.
 
 ## Overall Brand Compliance Score
 
@@ -116,10 +116,12 @@ Do **not** apply Notebook/Desktop weighting to Workstations, Tablets, CPU, or GP
 
 ## Badge detection and relevance
 
-- Detect badge strings using patterns in `config/badges.yaml`.
-- Store raw badge text, normalized `badge_code`, and relevance classification.
-- Relevance rules are configurable; high-relevance examples include Best Seller, Exclusive, Limited Time, Rebate, Official Store.
-- Sponsored badges are treated as contextual (not automatically “good” or “bad”).
+- Detect **platform / processor badge families** and promotional badges using `config/badges.yaml`.
+- Platform families: Intel (Core, Core Ultra, Evo, vPro), AMD (Ryzen, Ryzen AI), Qualcomm (Snapdragon), Apple (Apple Silicon, M-series).
+- For each product, compute **expected**, **detected**, **correct**, **missing**, and **ambiguous** from attributes vs DOM/text/alt/title evidence.
+- Prefer DOM evidence; OCR is an optional fallback layer (disabled by default).
+- Store append-only rows in `badges` with raw badge text, normalized `badge_code`, relevance flag, and status notes.
+- Sponsored promotional badges are treated as contextual (not automatically “good” or “bad”).
 
 ## Homepage banner tracking
 

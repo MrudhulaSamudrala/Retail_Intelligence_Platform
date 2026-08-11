@@ -1,50 +1,46 @@
 # Retailer audit checks and Overall Brand Compliance Score weights.
-# Individual S1–P5 check definitions are implementation assumptions where the
-# brief did not supply detailed criteria — see docs/assumptions.md.
+# Check definitions below match the project brief (S1, S2, P1–P5).
+# Operational matching rules live in collector/audit/.
 
 audit_checks:
   - code: S1
-    name: Search visibility of brand products
-    group: search
+    name: Listing title brand / processor visibility
+    group: listing
     description: >
-      Tracked brand products appear in relevant category/search results
-      with correct brand attribution signals.
+      Listing page title includes brand name and/or brand-specific processor line.
   - code: S2
-    name: Sort and filter brand discoverability
-    group: search
+    name: Listing tile brand badge
+    group: listing
     description: >
-      Brand can be discovered via retailer sort/filter facets where available;
-      brand is not systematically suppressed in default gaming browsing paths.
+      Brand badge is present on the listing tile.
   - code: P1
-    name: Accurate product title branding
+    name: Product page title branding
     group: product_page
     description: >
-      Product title correctly reflects processor/platform brand when applicable.
+      Product page title includes brand name, processor line or generation.
   - code: P2
-    name: Specification accuracy
+    name: Product page brand badge
     group: product_page
     description: >
-      Key specifications (CPU/GPU/SoC) are present and consistent with the title.
+      Brand badge is present on the product page.
   - code: P3
-    name: Image and merchandising consistency
+    name: Specification table brand / processor
     group: product_page
     description: >
-      Primary imagery and merchandising copy are consistent with the listed
-      product identity and brand.
+      Brand or processor line appears in the specification table.
   - code: P4
-    name: Promotion claim validity
+    name: Brand-led rich media
     group: product_page
     description: >
-      Promotional claims on the product page are coherent with observed price
-      and badge signals (no contradictory discount presentation).
+      Brand-led rich media is present on the product page.
   - code: P5
-    name: Badge and endorsement relevance
+    name: OEM rich media
     group: product_page
     description: >
-      Displayed badges are detectable and classified for relevance to brand
-      positioning (misleading or mismatched badges fail when evidence is clear).
+      OEM rich media is present on the product page.
 
 # Equal weighting across the seven audit checks (implementation assumption).
+# Overall compliance score is NOT computed in the audit-engine phase.
 check_weights:
   S1: 0.142857
   S2: 0.142857
@@ -61,7 +57,7 @@ segment_weights:
 
 # UNKNOWN handling (implementation assumption):
 # UNKNOWN is excluded from the compliance denominator and reported separately
-# as coverage / data completeness.
+# as coverage / data completeness. Missing evidence must never become PASS.
 unknown_handling:
   exclude_from_score_denominator: true
   report_coverage_separately: true
@@ -69,3 +65,101 @@ unknown_handling:
     - PASS
     - FAIL
     - UNKNOWN
+
+# Deterministic signal patterns for badge / rich-media checks.
+# Matching uses alphanumeric token boundaries where applicable.
+brand_badge_patterns:
+  Intel:
+    - intel inside
+    - intel®
+    - intel core
+    - intel ultra
+    - intel
+  AMD:
+    - amd ryzen
+    - amd radeon
+    - amd®
+    - ryzen
+    - amd
+  Qualcomm:
+    - qualcomm snapdragon
+    - snapdragon
+    - qualcomm
+  Apple:
+    - apple silicon
+    - apple m
+    - designed by apple
+    - apple
+
+oem_rich_media_patterns:
+  Dell:
+    - dell
+    - alienware
+  HP:
+    - hewlett-packard
+    - hewlett packard
+    - omen
+    - hp
+  Lenovo:
+    - thinkpad
+    - ideapad
+    - legion
+    - yoga
+    - lenovo
+  Acer:
+    - predator
+    - nitro
+    - acer
+  Asus:
+    - asustek
+    - asus
+    - rog
+    - tuf
+  MSI:
+    - micro-star
+    - msi
+  Apple:
+    - macbook
+    - imac
+    - mac mini
+    - mac studio
+    - mac pro
+    - apple
+
+# HTML/CSS hints collectors may supply as evidence selectors (not exclusive).
+evidence_selector_hints:
+  listing_title:
+    - a.item-title
+    - .item-title
+  listing_badge:
+    - .item-brand
+    - .item-img img[alt]
+    - [class*='badge']
+    - [class*='brand']
+  product_title:
+    - h1.product-title
+    - h1
+  product_badge:
+    - .product-brand
+    - [class*='badge']
+    - img[alt*='Intel' i]
+    - img[alt*='AMD' i]
+  product_specs:
+    - "#product-details table tr"
+    - table.table-horizontal tr
+  brand_rich_media:
+    - img[alt*='Intel' i]
+    - img[alt*='AMD' i]
+    - img[alt*='Snapdragon' i]
+    - img[alt*='Apple' i]
+    - video
+    - [class*='gallery']
+  oem_rich_media:
+    - img[alt*='Dell' i]
+    - img[alt*='HP' i]
+    - img[alt*='Lenovo' i]
+    - img[alt*='ASUS' i]
+    - img[alt*='MSI' i]
+    - img[alt*='Acer' i]
+    - img[alt*='Apple' i]
+    - [class*='gallery']

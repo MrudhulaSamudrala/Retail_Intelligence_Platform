@@ -69,7 +69,7 @@ Historical observations are never overwritten. Every observation has an `observe
 |---|---|---|
 | Newegg US | `collector/retailers/newegg/` | Retailer-specific selectors and navigation |
 | Mercado Libre BR | `collector/retailers/mercadolibre/` | Retailer-specific selectors and navigation |
-| Shared parsing | `collector/parsers/` | Price, availability, badge text normalization |
+| Shared parsing | `collector/parsers/` | Price, availability, platform badge expected/detected evaluation |
 | Audit evaluation | `collector/audit/` | S1, S2, P1–P5 → PASS / FAIL / UNKNOWN |
 
 Collection cadence (planned):

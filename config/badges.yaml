@@ -1,7 +1,203 @@
-# Promotional / positioning badges to detect on listings and product pages.
+# Badge configuration for BridgeAI.
+#
+# platform_families — processor / platform brand badges used for expected vs
+#   detected evaluation (DOM/text/alt/title first; OCR is an optional fallback).
+# badges — promotional / positioning badges on listings and product pages.
 # Detection patterns are retailer-agnostic starting points; collectors may
 # extend with retailer-specific selectors without hardcoding brand lists.
 
+platform_families:
+  # Intel
+  - code: intel_core
+    brand: Intel
+    name: Core
+    # Longer / more specific expected patterns win; Core Ultra is a separate family.
+    expected_patterns:
+      - intel core i9
+      - intel core i7
+      - intel core i5
+      - intel core i3
+      - core i9
+      - core i7
+      - core i5
+      - core i3
+      - intel core
+    # Exclude when Core Ultra is the primary line.
+    exclude_if_expected:
+      - intel_core_ultra
+    detect_patterns:
+      - intel core
+      - core badge
+      - intel® core™
+      - intel® core
+    detect_requires_context: false
+
+  - code: intel_core_ultra
+    brand: Intel
+    name: Core Ultra
+    expected_patterns:
+      - intel core ultra
+      - core ultra
+    detect_patterns:
+      - intel core ultra
+      - core ultra
+      - intel® core™ ultra
+      - intel ultra
+    detect_requires_context: false
+
+  - code: intel_evo
+    brand: Intel
+    name: Evo
+    expected_patterns:
+      - intel evo
+      - evo edition
+      - evo laptop
+      - evo platform
+      - intel® evo
+    detect_patterns:
+      - intel evo
+      - evo badge
+      - intel® evo™
+      - intel® evo
+      - evo
+    # Bare "evo" needs badge-ish context to avoid false positives.
+    detect_requires_context: true
+    context_tokens:
+      - badge
+      - logo
+      - brand
+      - emblem
+      - sticker
+      - intel
+
+  - code: intel_vpro
+    brand: Intel
+    name: vPro
+    expected_patterns:
+      - intel vpro
+      - vpro essentials
+      - vpro enterprise
+      - intel® vpro
+      - vpro
+    detect_patterns:
+      - intel vpro
+      - vpro badge
+      - intel® vpro®
+      - intel® vpro
+      - vpro
+    detect_requires_context: true
+    context_tokens:
+      - badge
+      - logo
+      - brand
+      - emblem
+      - sticker
+      - intel
+
+  # AMD
+  - code: amd_ryzen
+    brand: AMD
+    name: Ryzen
+    expected_patterns:
+      - amd ryzen
+      - ryzen
+    exclude_if_expected:
+      - amd_ryzen_ai
+    detect_patterns:
+      - amd ryzen
+      - ryzen badge
+      - amd® ryzen™
+      - amd® ryzen
+      - ryzen
+    detect_requires_context: false
+
+  - code: amd_ryzen_ai
+    brand: AMD
+    name: Ryzen AI
+    expected_patterns:
+      - amd ryzen ai
+      - ryzen ai
+    detect_patterns:
+      - amd ryzen ai
+      - ryzen ai
+      - amd® ryzen™ ai
+      - amd® ryzen ai
+    detect_requires_context: false
+
+  # Qualcomm
+  - code: qualcomm_snapdragon
+    brand: Qualcomm
+    name: Snapdragon
+    expected_patterns:
+      - qualcomm snapdragon
+      - snapdragon x elite
+      - snapdragon x plus
+      - snapdragon x
+      - snapdragon
+    detect_patterns:
+      - qualcomm snapdragon
+      - snapdragon
+      - snapdragon badge
+    detect_requires_context: false
+
+  # Apple
+  - code: apple_silicon
+    brand: Apple
+    name: Apple Silicon
+    expected_patterns:
+      - apple silicon
+      - apple m4
+      - apple m3
+      - apple m2
+      - apple m1
+      - m4
+      - m3
+      - m2
+      - m1
+    detect_patterns:
+      - apple silicon
+      - apple silicon badge
+    detect_requires_context: false
+
+  - code: apple_m_series
+    brand: Apple
+    name: M-series
+    expected_patterns:
+      - apple m4
+      - apple m3
+      - apple m2
+      - apple m1
+      - m4 pro
+      - m4 max
+      - m4 ultra
+      - m3 pro
+      - m3 max
+      - m3 ultra
+      - m2 pro
+      - m2 max
+      - m2 ultra
+      - m1 pro
+      - m1 max
+      - m1 ultra
+      - m4
+      - m3
+      - m2
+      - m1
+    detect_patterns:
+      - apple m-series
+      - m-series
+      - m series
+      - apple m4
+      - apple m3
+      - apple m2
+      - apple m1
+      - m4 badge
+      - m3 badge
+      - m2 badge
+      - m1 badge
+    detect_requires_context: false
+
+# Promotional / positioning badges (retailer deal labels, not chip families).
 badges:
   - code: best_seller
     name: Best Seller
@@ -106,3 +302,17 @@ relevance_rules:
     - new_arrival
     - free_shipping
     - bundle
+  # Platform / processor badge families are always relevant for brand positioning.
+  platform_families_relevant: true
+
+detection:
+  # Prefer DOM / text / alt / title evidence. OCR is an optional fallback layer
+  # and is disabled by default.
+  primary_sources:
+    - badge_text
+    - img_alt
+    - img_title
+    - element_title
+    - element_text
+  ocr_fallback_enabled: false
+  ocr_fallback_layer: optional

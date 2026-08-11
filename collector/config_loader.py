@@ -41,6 +41,11 @@ def load_retailers() -> dict[str, Any]:
     return _load_yaml("retailers.yaml")
 
 
+@lru_cache(maxsize=1)
+def load_badges() -> dict[str, Any]:
+    return _load_yaml("badges.yaml")
+
+
 def get_retailer(code: str) -> dict[str, Any]:
     retailers = load_retailers().get("retailers", [])
     for item in retailers:

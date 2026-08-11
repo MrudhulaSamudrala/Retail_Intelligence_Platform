@@ -184,13 +184,25 @@ Else `UNKNOWN` (never invent a brand).
 
 ## A14 — Audit check operational definitions
 
-**Ambiguity:** Brief names S1, S2, P1–P5 but does not fully specify evaluation criteria.
+**Ambiguity:** Brief names S1, S2, P1–P5; earlier draft config used alternate labels.
 
-**Assumption:** Use the operational definitions in `config/compliance.yaml` (search visibility, filter discoverability, title branding, spec accuracy, merchandising consistency, promo claim validity, badge relevance).
+**Assumption:** Use the project-brief definitions implemented in `collector/audit/`:
 
-**Rationale:** Required to implement a complete audit pipeline; definitions are transparent and configurable.
+| Code | Brief definition |
+|---|---|
+| S1 | Listing page title includes brand name and/or brand-specific processor line |
+| S2 | Brand badge is present on the listing tile |
+| P1 | Product page title includes brand name, processor line or generation |
+| P2 | Brand badge is present on the product page |
+| P3 | Brand or processor line appears in the specification table |
+| P4 | Brand-led rich media is present |
+| P5 | OEM rich media is present |
 
-**Config:** `config/compliance.yaml` → `audit_checks`
+Each check independently returns `PASS` / `FAIL` / `UNKNOWN` with preserved evidence. Missing evidence is never treated as `PASS`. Overall Brand Compliance Score is not computed in the audit-engine phase.
+
+**Rationale:** Aligns implementation with the assessment brief; keeps checks independently testable before scoring.
+
+**Config:** `config/compliance.yaml` → `audit_checks`, `brand_badge_patterns`, `oem_rich_media_patterns`
 
 ---
 
@@ -295,3 +307,36 @@ Else `UNKNOWN` (never invent a brand).
 **Assumption:** For local setup only, `pg_hba.conf` host entries for `127.0.0.1/32` and `::1/128` were switched to `trust` so migrations and verification could complete. A backup was saved as `pg_hba.conf.bridgeai.bak`. Set `POSTGRES_PASSWORD` in `.env` and restore scram auth when ready.
 
 **Rationale:** Completes required local DB setup without hardcoding or inventing a committed password.
+
+---
+
+## A25 — Platform badge families and expected/detected evaluation
+
+**Ambiguity:** Brief requires badge detection and storage but does not define processor badge families or how expected vs visible badges should be compared.
+
+**Assumption:** Track these platform badge families from `config/badges.yaml` → `platform_families`:
+
+| Brand | Families |
+|---|---|
+| Intel | Core, Core Ultra, Evo, vPro |
+| AMD | Ryzen, Ryzen AI |
+| Qualcomm | Snapdragon |
+| Apple | Apple Silicon, M-series |
+
+For each product:
+
+1. **Expected** — derived from processor / title / specs / description attributes
+2. **Detected** — derived from DOM evidence (`badge_texts`, `img` alt/title, element title/text); page-wide text is weaker and may be ambiguous
+3. **Correct** = expected ∩ detected
+4. **Missing** = expected − detected (excluding ambiguous-only expected hits)
+5. **Ambiguous** — weak / context-missing / OCR-fallback matches
+
+More-specific siblings supersede less-specific ones for expectation (Core Ultra over Core; Ryzen AI over Ryzen). OCR is an optional fallback layer (`detection.ocr_fallback_enabled`, default false) and never overrides confident DOM evidence.
+
+Results are append-only rows in `badges` with `badge_code`, raw `badge_text`, `is_relevant=true` for platform families, and `relevance_notes` encoding status / source / pattern.
+
+**Rationale:** Makes badge compliance auditable without inventing OCR as the primary signal.
+
+**Config:** `config/badges.yaml` → `platform_families`, `detection`
+**Code:** `collector/parsers/badges.py`
+
