@@ -30,6 +30,10 @@ class CollectionOutcome:
     success: list[NormalizedProduct] = field(default_factory=list)
     failed: list[dict[str, Any]] = field(default_factory=list)
     skipped_duplicates: list[str] = field(default_factory=list)
+    discovered: int = 0
+    collection_run_id: Optional[int] = None
+    status: Optional[str] = None
+    bot_blocked: bool = False
 
 
 class RetailerCollector(ABC):

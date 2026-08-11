@@ -9,7 +9,7 @@ import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TypeVar
 
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 
@@ -17,9 +17,10 @@ T = TypeVar("T")
 logger = logging.getLogger("collector.browser")
 
 
-DEFAULT_TIMEOUT_MS = int(os.getenv("COLLECTION_TIMEOUT_MS", "30000"))
+DEFAULT_TIMEOUT_MS = int(os.getenv("COLLECTION_TIMEOUT_MS", "45000"))
 DEFAULT_RETRIES = int(os.getenv("COLLECTION_RETRIES", "3"))
 SCREENSHOT_DIR = Path(os.getenv("SCREENSHOT_DIR", "data/screenshots"))
+CDP_URL = (os.getenv("COLLECTION_CDP_URL") or os.getenv("PLAYWRIGHT_CDP_URL") or "").strip()
 
 
 def _default_user_agent() -> str:
@@ -28,13 +29,29 @@ def _default_user_agent() -> str:
         (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
+            "Chrome/131.0.0.0 Safari/537.36"
         ),
     )
 
 
+def _stealth_init_script() -> str:
+    return """
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+    window.chrome = window.chrome || { runtime: {} };
+    """
+
+
 class BrowserSession:
-    """Shared Playwright lifecycle used by all retailer adapters."""
+    """Shared Playwright lifecycle used by all retailer adapters.
+
+    Modes:
+    - Default: launch Chromium/Chrome (may be blocked by Newegg bot protection).
+    - CDP: set COLLECTION_CDP_URL=http://127.0.0.1:9222 and start a real Chrome with
+      --remote-debugging-port=9222. Playwright attaches without launching an automated
+      browser, which is often required to pass Newegg/Cloudflare checks.
+    """
 
     def __init__(
         self,
@@ -42,6 +59,7 @@ class BrowserSession:
         headless: bool | None = None,
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
         screenshot_dir: Path | None = None,
+        cdp_url: str | None = None,
     ) -> None:
         if headless is None:
             headless = os.getenv("COLLECTION_HEADLESS", "true").lower() in {
@@ -52,36 +70,63 @@ class BrowserSession:
         self.headless = headless
         self.timeout_ms = timeout_ms
         self.screenshot_dir = screenshot_dir or SCREENSHOT_DIR
+        self.cdp_url = (cdp_url if cdp_url is not None else CDP_URL).strip()
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self.context: BrowserContext | None = None
+        self._owns_browser = True
 
     async def __aenter__(self) -> "BrowserSession":
         self.screenshot_dir.mkdir(parents=True, exist_ok=True)
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(
-            headless=self.headless,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-            ],
-        )
+
+        if self.cdp_url:
+            logger.info(
+                "browser_cdp_connect",
+                extra={"event": "browser_cdp_connect", "url": self.cdp_url},
+            )
+            self._browser = await self._playwright.chromium.connect_over_cdp(self.cdp_url)
+            self._owns_browser = False
+            if self._browser.contexts:
+                self.context = self._browser.contexts[0]
+            else:
+                self.context = await self._browser.new_context(
+                    user_agent=_default_user_agent(),
+                    locale="en-US",
+                    viewport={"width": 1440, "height": 900},
+                )
+            self.context.set_default_timeout(self.timeout_ms)
+            return self
+
+        channel = os.getenv("COLLECTION_BROWSER_CHANNEL", "").strip() or None
+        launch_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+        ]
+        launch_kwargs: dict = {
+            "headless": self.headless,
+            "args": launch_args,
+        }
+        if channel:
+            launch_kwargs["channel"] = channel
+
+        self._browser = await self._playwright.chromium.launch(**launch_kwargs)
+        self._owns_browser = True
         self.context = await self._browser.new_context(
             user_agent=_default_user_agent(),
             locale="en-US",
             viewport={"width": 1440, "height": 900},
+            timezone_id=os.getenv("COLLECTION_TIMEZONE", "America/Los_Angeles"),
+            extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
             java_script_enabled=True,
         )
         self.context.set_default_timeout(self.timeout_ms)
-        await self.context.add_init_script(
-            """
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            """
-        )
+        await self.context.add_init_script(_stealth_init_script())
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:  # type: ignore[no-untyped-def]
-        if self.context:
+        # For CDP mode, close() only disconnects Playwright; Chrome keeps running.
+        if self._owns_browser and self.context:
             await self.context.close()
         if self._browser:
             await self._browser.close()
@@ -117,7 +162,7 @@ class BrowserSession:
                         "error": str(exc),
                     },
                 )
-                await asyncio.sleep(min(2 ** attempt, 8))
+                await asyncio.sleep(min(2**attempt, 8))
         assert last_error is not None
         raise last_error
 
@@ -163,6 +208,6 @@ async def with_retries(
                     "url": label,
                 },
             )
-            await asyncio.sleep(min(2 ** attempt, 8))
+            await asyncio.sleep(min(2**attempt, 8))
     assert last_error is not None
     raise last_error

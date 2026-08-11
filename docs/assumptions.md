@@ -240,10 +240,20 @@ Else `UNKNOWN` (never invent a brand).
 
 **Ambiguity:** Brief does not specify exact Newegg category IDs or search URLs for the first prototype.
 
-**Assumption:** Controlled scope uses gaming purchase-intent searches defined in `config/newegg_discovery.yaml`:
-gaming laptop, gaming desktop, and RTX graphics card result pages (1 page each).
+**Assumption:** Controlled scope uses a single Best Match search defined in `config/newegg_discovery.yaml`:
+`https://www.newegg.com/p/pl?d=gaming+laptop` (gaming notebooks). Lowest-price sort (`Order=1`) is avoided because it surfaces accessories and unrelated junk.
 
 **Rationale:** Aligns with tracked gaming product types while keeping the first live run small and reproducible.
+
+---
+
+## A24 — Newegg bot protection / Playwright CDP attach
+
+**Ambiguity:** Automated Playwright Chromium launches are frequently blocked by Newegg/Cloudflare ("unusual traffic" / Turnstile), while a normal Chrome session can load the same pages.
+
+**Assumption:** Prefer attaching Playwright to a system Chrome via `COLLECTION_CDP_URL` (Chrome started with `--remote-debugging-port=9222`). Direct Chromium launch remains supported but may fail under bot protection. Screenshots are captured on challenge/listing/product pages for debugging.
+
+**Rationale:** Proves the real Newegg → parse → PostgreSQL pipeline without fabricating data or bypassing retailer terms with fake HTML fixtures.
 
 ---
 

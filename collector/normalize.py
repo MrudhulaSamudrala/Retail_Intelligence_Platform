@@ -51,6 +51,16 @@ def _compile_aliases(items: list[dict[str, Any]], key: str = "aliases") -> list[
     return compiled
 
 
+def _alias_matches(alias: str, blob: str) -> bool:
+    """Match aliases in text; use word boundaries for short tokens (e.g. hp vs hdmi)."""
+    alias = alias.lower().strip()
+    if not alias or not blob:
+        return False
+    if len(alias) <= 3:
+        return re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", blob) is not None
+    return alias in blob
+
+
 def detect_brand(*texts: Optional[str]) -> str:
     """Brand hierarchy approximated over concatenated evidence strings."""
     brands = load_brands().get("brands", [])
@@ -61,7 +71,7 @@ def detect_brand(*texts: Optional[str]) -> str:
     # Prefer explicit manufacturer aliases, then processor families (already merged).
     for name, aliases in _compile_aliases(brands):
         for alias in aliases:
-            if alias and alias in blob:
+            if _alias_matches(alias, blob):
                 return name
     return UNKNOWN
 
@@ -76,7 +86,7 @@ def detect_oem(*texts: Optional[str], product_type: Optional[str] = None) -> Opt
         return None
     for item in oems:
         for alias in sorted(item.get("aliases", []), key=len, reverse=True):
-            if alias.lower() in blob:
+            if _alias_matches(alias.lower(), blob):
                 return item["name"]
     return None
 

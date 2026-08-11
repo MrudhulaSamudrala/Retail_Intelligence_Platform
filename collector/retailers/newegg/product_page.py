@@ -25,12 +25,13 @@ SPEC_ALIASES = {
         "processor type",
     ],
     "gpu": [
+        "gpu/vga type",
+        "graphics card",
+        "gpu type",
+        "chipset",
         "gpu",
         "graphics",
-        "graphics card",
         "video memory",
-        "gpu/vga type",
-        "chipset",
     ],
     "ram": [
         "memory",
@@ -57,12 +58,20 @@ def is_bot_challenge(html_or_text: str) -> bool:
 
 def pick_spec(specs: dict[str, str], aliases: list[str]) -> Optional[str]:
     lowered = {k.lower().strip(): v.strip() for k, v in specs.items() if v}
+
+    def _usable(value: str, alias: str) -> bool:
+        # Avoid treating VRAM-only values as the GPU model name.
+        if alias in {"gpu", "graphics", "video memory", "gpu/vga type", "graphics card", "gpu type", "chipset"}:
+            if re.fullmatch(r"\d+\s*GB(?:DDR\d)?", value, re.I):
+                return False
+        return bool(value)
+
     for alias in aliases:
-        if alias in lowered and lowered[alias]:
+        if alias in lowered and _usable(lowered[alias], alias):
             return lowered[alias]
     for key, value in lowered.items():
         for alias in aliases:
-            if alias in key and value:
+            if alias in key and _usable(value, alias):
                 return value
     return None
 
@@ -126,6 +135,22 @@ async def extract_json_ld(page) -> dict[str, Any]:
     return parse_json_ld_products(scripts)
 
 
+def specs_from_feature_bullets(features: list[str] | None) -> dict[str, str]:
+    """Parse listing feature bullets like 'GPU: RTX 4060' into a specs dict."""
+    specs: dict[str, str] = {}
+    if not features:
+        return specs
+    for line in features:
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+        if key and value:
+            specs[key] = value
+    return specs
+
+
 async def parse_product_page(
     page,
     *,
@@ -138,6 +163,7 @@ async def parse_product_page(
     fallback_list_price: Optional[str] = None,
     fallback_promo: Optional[str] = None,
     category_raw: Optional[str] = None,
+    listing_features: Optional[list[str]] = None,
 ) -> Any:
     html = await page.content()
     if is_bot_challenge(html) or is_bot_challenge(await page.title()):
@@ -166,6 +192,10 @@ async def parse_product_page(
             availability_text = availability_text or str(offers.get("availability") or "")
 
     specs = await extract_specs(page)
+    # Merge listing bullets when product-page tables are sparse.
+    for key, value in specs_from_feature_bullets(listing_features).items():
+        specs.setdefault(key, value)
+
     processor = pick_spec(specs, SPEC_ALIASES["processor"])
     gpu = pick_spec(specs, SPEC_ALIASES["gpu"])
     ram = pick_spec(specs, SPEC_ALIASES["ram"])
@@ -214,5 +244,6 @@ async def parse_product_page(
         raw_payload={
             "json_ld_present": bool(json_ld),
             "page_title": await page.title(),
+            "listing_features": listing_features or [],
         },
     )

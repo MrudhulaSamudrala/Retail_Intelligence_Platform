@@ -53,9 +53,13 @@ async def _async_main(retailer: str, limit: int) -> int:
     summary = {
         "retailer": retailer,
         "limit": limit,
+        "collection_run_id": outcome.collection_run_id,
+        "status": outcome.status,
+        "discovered": outcome.discovered,
         "successful": len(outcome.success),
         "failed": len(outcome.failed),
         "skipped_duplicates": len(outcome.skipped_duplicates),
+        "bot_blocked": outcome.bot_blocked,
         "products": [
             {
                 "sku": p.retailer_sku,
@@ -69,6 +73,9 @@ async def _async_main(retailer: str, limit: int) -> int:
                 "url": p.source_url,
                 "processor": p.processor,
                 "gpu": p.gpu,
+                "ram": p.ram,
+                "storage": p.storage,
+                "promo_text": p.promo_text,
             }
             for p in outcome.success
         ],

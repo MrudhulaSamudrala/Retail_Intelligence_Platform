@@ -25,6 +25,7 @@ def test_extract_item_number_from_url_and_title() -> None:
     url = "https://www.newegg.com/asus-rog/p/N82E16834204369"
     assert extract_item_number(url) == "N82E16834204369"
     assert extract_item_number("https://www.newegg.com/p/3D5-000W-00001") == "3D5-000W-00001"
+    assert extract_item_number("https://www.newegg.com/p/pl?d=gaming+laptop") is None
 
 
 def test_parse_listing_card_and_dedupe() -> None:
@@ -47,6 +48,16 @@ def test_parse_listing_card_and_dedupe() -> None:
     unique = dedupe_candidates([a, b])
     assert len(unique) == 1
     assert unique[0].retailer_sku == "N82E16834204369"
+    assert (
+        parse_listing_card_html(
+            title="Search page",
+            href="https://www.newegg.com/p/pl?d=gaming+laptop",
+            price_text=None,
+            list_price_text=None,
+            promo_text=None,
+        )
+        is None
+    )
 
 
 def test_brand_oem_and_product_type_detection() -> None:
@@ -59,6 +70,10 @@ def test_brand_oem_and_product_type_detection() -> None:
     assert detect_brand(cpu_title) == "AMD"
     assert detect_product_type(title=cpu_title, category_raw="CPU") == "cpu"
     assert detect_oem(cpu_title, product_type="cpu") is None
+
+    # "hp" must not match inside "HDMI"
+    msi_title = "MSI Stealth 16 AI Intel Core Ultra7 HDMI ports"
+    assert detect_oem(msi_title, product_type="notebook") == "MSI"
 
 
 def test_build_normalized_product_preserves_specs_and_unknowns() -> None:

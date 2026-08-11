@@ -50,6 +50,7 @@ class CollectionPipeline:
         try:
             async with BrowserSession() as browser:
                 candidates = await self.collector.discover_listings(browser, limit=limit * 2)
+                outcome.discovered = len(candidates)
                 logger.info(
                     "listings_discovered",
                     extra={
@@ -107,6 +108,8 @@ class CollectionPipeline:
                         )
         except Exception as exc:  # noqa: BLE001
             error_message = str(exc)
+            if "bot challenge" in error_message.lower() or "unusual traffic" in error_message.lower():
+                outcome.bot_blocked = True
             logger.exception(
                 "collection_aborted",
                 extra={
@@ -136,6 +139,8 @@ class CollectionPipeline:
             )
             self.session.commit()
 
+        outcome.collection_run_id = run_id
+        outcome.status = status
         logger.info(
             "collection_finished",
             extra={

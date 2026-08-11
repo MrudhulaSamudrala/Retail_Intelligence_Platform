@@ -27,6 +27,39 @@ class NeweggCollector(RetailerCollector):
         self.base_url = cfg["base_url"]
         self.discovery = load_discovery_config()
 
+    async def _wait_for_listings_or_raise(self, page, session: BrowserSession) -> None:
+        """Allow Cloudflare/Newegg challenges a short window to clear before failing."""
+        for attempt in range(1, 13):
+            content = await page.content()
+            title = await page.title()
+            item_count = await page.locator(
+                "a.item-title, .item-cell, a[href*='/p/']"
+            ).count()
+            challenged = is_bot_challenge(content) or is_bot_challenge(title)
+            if item_count > 0 and not challenged:
+                return
+            if challenged:
+                logger.warning(
+                    "newegg_challenge_wait",
+                    extra={
+                        "event": "newegg_challenge_wait",
+                        "attempt": attempt,
+                        "url": page.url,
+                        "retailer": self.code,
+                    },
+                )
+                await page.wait_for_timeout(2500)
+                continue
+            # Page loaded but selectors not ready yet.
+            await page.wait_for_timeout(1000)
+
+        path = await session.screenshot(page, label="newegg_bot_challenge_listing")
+        raise RuntimeError(
+            "Newegg blocked or failed listing discovery (bot challenge / empty results). "
+            "If this persists, start Chrome with --remote-debugging-port=9222 and set "
+            f"COLLECTION_CDP_URL=http://127.0.0.1:9222. screenshot={path}"
+        )
+
     async def discover_listings(
         self,
         session: BrowserSession,
@@ -41,17 +74,14 @@ class NeweggCollector(RetailerCollector):
                 category_raw = entry.get("name")
                 logger.info(
                     "newegg_discovery_open",
-                    extra={"event": "newegg_discovery_open", "url": url, "retailer": self.code},
+                    extra={
+                        "event": "newegg_discovery_open",
+                        "url": url,
+                        "retailer": self.code,
+                    },
                 )
                 await session.goto(page, url)
-                await page.wait_for_timeout(2500)
-                content = await page.content()
-                title = await page.title()
-                if is_bot_challenge(content) or is_bot_challenge(title):
-                    path = await session.screenshot(page, label="newegg_bot_challenge_listing")
-                    raise RuntimeError(
-                        f"Newegg blocked listing discovery (bot challenge). screenshot={path}"
-                    )
+                await self._wait_for_listings_or_raise(page, session)
 
                 # Mild scroll to trigger lazy content.
                 await page.mouse.wheel(0, 2400)
@@ -67,6 +97,7 @@ class NeweggCollector(RetailerCollector):
                         "retailer": self.code,
                     },
                 )
+                await session.screenshot(page, label="newegg_listing_discovery")
                 collected.extend(batch)
                 if len(dedupe_candidates(collected)) >= limit:
                     break
@@ -85,10 +116,27 @@ class NeweggCollector(RetailerCollector):
         page = await session.new_page()
         try:
             await session.goto(page, candidate.source_url)
-            await page.wait_for_timeout(2000)
-            content = await page.content()
-            if is_bot_challenge(content) or is_bot_challenge(await page.title()):
-                path = await session.screenshot(page, label=f"newegg_bot_{candidate.retailer_sku}")
+            # Short challenge clearance window for product pages.
+            for attempt in range(1, 9):
+                content = await page.content()
+                title = await page.title()
+                if not (is_bot_challenge(content) or is_bot_challenge(title)):
+                    break
+                logger.warning(
+                    "newegg_product_challenge_wait",
+                    extra={
+                        "event": "newegg_product_challenge_wait",
+                        "attempt": attempt,
+                        "sku": candidate.retailer_sku,
+                        "url": candidate.source_url,
+                        "retailer": self.code,
+                    },
+                )
+                await page.wait_for_timeout(2500)
+            else:
+                path = await session.screenshot(
+                    page, label=f"newegg_bot_{candidate.retailer_sku}"
+                )
                 raise RuntimeError(
                     f"Newegg bot challenge on product page. screenshot={path}"
                 )
@@ -104,6 +152,9 @@ class NeweggCollector(RetailerCollector):
                 fallback_list_price=candidate.list_price_text,
                 fallback_promo=candidate.promo_text,
                 category_raw=candidate.category_raw,
+                listing_features=candidate.raw.get("features")
+                if isinstance(candidate.raw.get("features"), list)
+                else None,
             )
             # Keep listing promo if product page omitted it.
             if not product.promo_text and candidate.promo_text:

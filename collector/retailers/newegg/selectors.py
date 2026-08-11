@@ -46,9 +46,9 @@ PRODUCT_TITLE_SELECTORS = [
 ]
 
 PRODUCT_PRICE_SELECTORS = [
+    "#landingpage-price .price-current",
     ".product-price .price-current",
     ".price-current",
-    "#landingpage-price .price-current",
     "[class*='price-current']",
 ]
 
@@ -63,16 +63,19 @@ PRODUCT_AVAILABILITY_SELECTORS = [
 
 SPEC_ROW_SELECTORS = [
     "#product-details table tr",
-    "#Specifications table tr",
     "table.table-horizontal tr",
+    "#Specifications table tr",
     "[id*='Specifications'] table tr",
     "div#product-details dl",
+    ".product-specs table tr",
 ]
 
 BOT_CHALLENGE_MARKERS = [
     "unusual traffic",
     "are you a human",
+    "verify you are human",
     "just a moment",
     "cf-browser-verification",
     "attention required",
+    "checking your browser",
 ]

@@ -1,6 +1,6 @@
 # Newegg US controlled collection scope for the prototype.
-# Implementation assumption: start with gaming notebooks + gaming desktops
-# search entry points (purchase-intent, in-scope product types).
+# One clearly defined gaming-related search: Best Match "gaming laptop".
+# (Avoid Order=1 / Lowest Price — that surfaces accessories and junk listings.)
 
 retailer_code: newegg
 country_code: US
@@ -9,13 +9,7 @@ currency: USD
 discovery:
   - name: gaming_laptops
     product_type_hint: notebook
-    url: "https://www.newegg.com/p/pl?d=gaming+laptop&Order=1"
-  - name: gaming_desktops
-    product_type_hint: desktop
-    url: "https://www.newegg.com/p/pl?d=gaming+desktop&Order=1"
-  - name: graphics_cards_gaming
-    product_type_hint: gpu
-    url: "https://www.newegg.com/p/pl?d=rtx+graphics+card&Order=1"
+    url: "https://www.newegg.com/p/pl?d=gaming+laptop"
 
 limits:
   max_pages_per_query: 1

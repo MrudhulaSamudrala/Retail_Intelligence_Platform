@@ -17,6 +17,8 @@ from collector.retailers.newegg.selectors import (
 
 ITEM_NUMBER_RE = re.compile(r"(N\d{2}E\d{9,}[A-Z0-9]*)", re.IGNORECASE)
 ITEM_PATH_RE = re.compile(r"/p/([A-Za-z0-9\-]+)", re.IGNORECASE)
+# Newegg search uses /p/pl?... — never treat that path token as a product SKU.
+INVALID_PATH_SKUS = {"PL", "P", "PAGE", "PAGES"}
 
 
 def extract_item_number(url: str, text: str = "") -> Optional[str]:
@@ -28,15 +30,34 @@ def extract_item_number(url: str, text: str = "") -> Optional[str]:
     qs = parse_qs(parsed.query)
     for key in ("Item", "ItemNumber", "item"):
         if key in qs and qs[key]:
-            return qs[key][0].upper()
+            value = qs[key][0].strip().upper()
+            if value and value not in INVALID_PATH_SKUS:
+                return value
     path_match = ITEM_PATH_RE.search(parsed.path or "")
     if path_match:
-        return path_match.group(1).upper()
+        token = path_match.group(1).upper()
+        # Real Newegg product path IDs are longer than search stubs like "PL".
+        if token in INVALID_PATH_SKUS or len(token) < 6:
+            return None
+        return token
     return None
 
 
 def absolute_newegg_url(href: str, base: str = "https://www.newegg.com") -> str:
     return urljoin(base, href)
+
+
+def is_product_href(href: str) -> bool:
+    """Return True for product detail links, False for search/category stubs."""
+    if not href:
+        return False
+    parsed = urlparse(absolute_newegg_url(href))
+    path = (parsed.path or "").lower()
+    if path.rstrip("/") in {"/p/pl", "/p"}:
+        return False
+    if "/p/pl" == path or path.startswith("/p/pl/"):
+        return False
+    return "/p/" in path
 
 
 def parse_listing_card_html(
@@ -49,6 +70,8 @@ def parse_listing_card_html(
     category_raw: Optional[str] = None,
 ) -> Optional[ListingCandidate]:
     if not href or not title:
+        return None
+    if not is_product_href(href):
         return None
     url = absolute_newegg_url(href)
     sku = extract_item_number(url, title)
@@ -105,7 +128,8 @@ async def extract_listings_from_page(page, *, category_raw: Optional[str] = None
         for i in range(count):
             card = cards.nth(i)
 
-            async def factory(sel: str, _card=card):
+            # Must be sync: first_text/first_attr call this directly (not awaited).
+            def factory(sel: str, _card=card):
                 return _card.locator(sel)
 
             title = await first_text(factory, LISTING_TITLE_SELECTORS)
@@ -125,6 +149,19 @@ async def extract_listings_from_page(page, *, category_raw: Optional[str] = None
                 category_raw=category_raw,
             )
             if candidate:
+                # Capture feature bullets when present (GPU / CPU / RAM / SSD lines).
+                try:
+                    bullets = card.locator("ul.item-features li, .item-features li")
+                    bullet_count = min(await bullets.count(), 12)
+                    features = []
+                    for bi in range(bullet_count):
+                        text = (await bullets.nth(bi).inner_text()).strip()
+                        if text and len(text) < 200:
+                            features.append(text)
+                    if features:
+                        candidate.raw["features"] = features
+                except Exception:  # noqa: BLE001
+                    pass
                 items.append(candidate)
         if items:
             break
