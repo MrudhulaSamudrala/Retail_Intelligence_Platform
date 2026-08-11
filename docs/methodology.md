@@ -1,6 +1,6 @@
 # BridgeAI Methodology
 
-This document describes the planned methodology for data collection and metrics. Items marked **assumed** are implementation assumptions documented in `docs/assumptions.md` and made configurable where practical.
+This document describes the planned methodology for data collection and metrics. Items marked **assumed** are implementation assumptions documented in `docs/assumptions.md` and made configurable where practical. Open brief gaps are tracked in `docs/clarifications.md`.
 
 ## Product discovery
 
@@ -99,20 +99,20 @@ Overall Brand Compliance Score is **not** computed in the audit-engine phase; in
 
 ## Overall Brand Compliance Score
 
-Per brand, per retailer/country, for a scoring window:
+Implemented in `analytics/compliance/`. Per brand, per retailer, and/or per country:
 
-1. For each audit check, compute pass rate over non-UNKNOWN results.
-2. Combine the seven checks with **equal weights** (1/7 each) — assumed, configurable.
-3. Compute Notebook segment score and Desktop segment score separately.
-4. Overall:
+1. For each audit check (S1–P5), compute pass rate over non-UNKNOWN results.
+2. Combine the seven checks using a **configurable** strategy (`config/compliance.yaml` → `check_aggregation.strategy`). Individual S1–P5 weights are **not** specified by the brief — see `docs/clarifications.md` (C1). Interim default: `equal_check_weights`.
+3. Compute **Notebook** segment score and **Desktop** segment score separately.
+4. Final weighted score (brief-authoritative):
 
 ```
 Overall = (Notebook_score × 0.85) + (Desktop_score × 0.15)
 ```
 
-Notebook/Desktop segment weights come from the project brief.
+If either Notebook or Desktop lacks scored data, `overall_score` is null (segment scores still reported; see clarifications C2).
 
-Do **not** apply Notebook/Desktop weighting to Workstations, Tablets, CPU, or GPU unless explicitly required later.
+Do **not** apply Notebook/Desktop weighting to Workstations, Tablets, CPU, or GPU unless explicitly required by the project owner. Those types may appear under `other_segments` for reporting only.
 
 ## Badge detection and relevance
 

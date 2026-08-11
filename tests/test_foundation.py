@@ -28,6 +28,7 @@ REQUIRED_DOCS = [
     "architecture.md",
     "methodology.md",
     "assumptions.md",
+    "clarifications.md",
 ]
 
 REQUIRED_MODELS = [
@@ -92,6 +93,15 @@ def test_segment_weights_match_brief() -> None:
     assert data["segment_weights"]["notebook"] == 0.85
     assert data["segment_weights"]["desktop"] == 0.15
 
+
+def test_check_aggregation_strategy_is_configurable() -> None:
+    data = yaml.safe_load((CONFIG_DIR / "compliance.yaml").read_text(encoding="utf-8"))
+    strategy = data["check_aggregation"]["strategy"]
+    assert strategy in {
+        "equal_check_weights",
+        "configured_check_weights",
+        "pooled_observations",
+    }
 
 @pytest.mark.parametrize("name", REQUIRED_DOCS)
 def test_docs_exist(name: str) -> None:

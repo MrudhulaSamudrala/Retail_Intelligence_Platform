@@ -101,6 +101,7 @@ BridgeAI/
 │   ├── parsers/
 │   └── audit/
 ├── analytics/
+│   └── compliance/
 ├── database/
 │   ├── models.py
 │   ├── connection.py
@@ -117,7 +118,8 @@ BridgeAI/
 ├── docs/
 │   ├── architecture.md
 │   ├── methodology.md
-│   └── assumptions.md
+│   ├── assumptions.md
+│   └── clarifications.md
 ├── reports/
 ├── .env.example
 ├── .gitignore
@@ -235,7 +237,8 @@ alembic upgrade head --sql
 - [ ] Mercado Libre collector
 - [ ] Parsing / normalization / brand-OEM attribution pipeline
 - [ ] Audit evaluation engine (S1–P5)
-- [ ] Analytics (compliance, SoS, SoV, trends, insights)
+- [x] Overall Brand Compliance Score (`analytics/compliance/`; Notebook 85% + Desktop 15%)
+- [ ] Analytics (SoS, SoV, trends, insights)
 - [ ] Excel/CSV report generation
 - [ ] Streamlit dashboard
 - [ ] Automated scheduling on Render

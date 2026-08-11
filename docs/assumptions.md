@@ -8,15 +8,15 @@ Where practical, values are externalized under `config/` so they can be changed 
 
 ---
 
-## A1 — Equal audit check weights (S1, S2, P1–P5)
+## A1 — Interim S1–P5 combination (until Bridge AI clarifies)
 
-**Ambiguity:** Brief specifies Notebook=85% / Desktop=15% overall weighting but does not specify individual weights for S1, S2, P1, P2, P3, P4, P5.
+**Ambiguity:** Brief specifies Notebook=85% / Desktop=15% overall weighting but does **not** specify individual weights for S1, S2, P1, P2, P3, P4, P5. See `docs/clarifications.md` (C1).
 
-**Assumption:** Each audit check weight = 1/7.
+**Assumption (interim, configurable — not Bridge AI–authoritative):** Default `check_aggregation.strategy = equal_check_weights` (each scored check contributes equally). Alternate strategies (`configured_check_weights`, `pooled_observations`) are available without code changes. Do not treat placeholder `check_weights` as brief-specified.
 
-**Rationale:** No criterion is identified as more important; equal weighting is the most neutral and reproducible approach.
+**Rationale:** Scoring must remain runnable while weights are unresolved; equal weights are the most neutral interim default and can be replaced when Bridge AI clarifies.
 
-**Config:** `config/compliance.yaml` → `check_weights`
+**Config:** `config/compliance.yaml` → `check_aggregation`, `check_weights`
 
 ---
 

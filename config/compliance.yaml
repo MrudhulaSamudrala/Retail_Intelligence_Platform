@@ -39,8 +39,19 @@ audit_checks:
     description: >
       OEM rich media is present on the product page.
 
-# Equal weighting across the seven audit checks (implementation assumption).
-# Overall compliance score is NOT computed in the audit-engine phase.
+# How S1–P5 combine into a segment score.
+# Bridge AI has NOT specified individual check weights — see docs/clarifications.md (C1).
+# Strategies (configurable; change without code edits):
+#   equal_check_weights      — interim default; each of S1–P5 weighted equally among
+#                              checks that have at least one scored (PASS/FAIL) result
+#   configured_check_weights — use check_weights below (placeholder until Bridge AI clarifies)
+#   pooled_observations      — PASS / (PASS + FAIL) across all scored check results;
+#                              does not apply per-check weights
+check_aggregation:
+  strategy: equal_check_weights
+
+# Used only when check_aggregation.strategy == configured_check_weights.
+# Values below are placeholders (equal 1/7) — not Bridge AI–specified weights.
 check_weights:
   S1: 0.142857
   S2: 0.142857
@@ -50,7 +61,10 @@ check_weights:
   P4: 0.142857
   P5: 0.142857
 
-# Overall Brand Compliance Score segment weights (from brief).
+# Overall Brand Compliance Score segment weights (from project brief — authoritative).
+# Final weighted score = notebook × 0.85 + desktop × 0.15
+# Do NOT apply these weights to workstation, tablet, cpu, or gpu unless the project
+# owner explicitly requires it (see product_types.yaml included_in_compliance_weighting).
 segment_weights:
   notebook: 0.85
   desktop: 0.15
