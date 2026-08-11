@@ -236,6 +236,27 @@ Else `UNKNOWN` (never invent a brand).
 
 ---
 
+## A20 — Newegg prototype discovery scope
+
+**Ambiguity:** Brief does not specify exact Newegg category IDs or search URLs for the first prototype.
+
+**Assumption:** Controlled scope uses gaming purchase-intent searches defined in `config/newegg_discovery.yaml`:
+gaming laptop, gaming desktop, and RTX graphics card result pages (1 page each).
+
+**Rationale:** Aligns with tracked gaming product types while keeping the first live run small and reproducible.
+
+---
+
+## A21 — Spec fields stored in snapshot raw_payload
+
+**Ambiguity:** Processor/GPU/RAM/storage are required extraction fields but were not dedicated columns in the foundation schema.
+
+**Assumption:** Persist these values inside `product_snapshots.raw_payload` (and mirrored on the normalized DTO) without a schema migration for the prototype.
+
+**Rationale:** Avoids premature schema churn; values remain queryable via JSON and can be promoted to columns later if needed.
+
+---
+
 ## A19 — SQLite for offline unit tests of the data layer
 
 **Ambiguity:** How to validate insert/query behavior without a live PostgreSQL instance during local foundation work.
@@ -243,3 +264,24 @@ Else `UNKNOWN` (never invent a brand).
 **Assumption:** Unit tests use in-memory SQLite with JSON fallback. Production schema targets PostgreSQL (JSONB) via Alembic migrations. ORM JSON columns use `JSON().with_variant(JSONB(), "postgresql")`.
 
 **Rationale:** Keeps tests hermetic and avoids requiring production credentials; Alembic remains the source of truth for PostgreSQL DDL.
+
+---
+
+## A22 — Local PostgreSQL 18 (Windows native), not Docker
+
+**Ambiguity:** Earlier exploration briefly attempted Docker PostgreSQL; the assessment target is a Windows-native PostgreSQL 18 instance.
+
+**Assumption:** BridgeAI connects to local PostgreSQL 18 via environment variables:
+`POSTGRES_HOST=localhost`, `POSTGRES_PORT=5433`, `POSTGRES_DB=bridgeai`, `POSTGRES_USER=postgres`, plus `POSTGRES_PASSWORD` from untracked `.env` (never committed).
+
+**Rationale:** Matches the installed PostgreSQL 18 service (`port = 5433`) and removes any Docker dependency for the database.
+
+---
+
+## A23 — Local trust auth used only when no password was available
+
+**Ambiguity:** No `.env`, `POSTGRES_PASSWORD`, or `DATABASE_URL` was present to authenticate to PostgreSQL 18 (scram-sha-256).
+
+**Assumption:** For local setup only, `pg_hba.conf` host entries for `127.0.0.1/32` and `::1/128` were switched to `trust` so migrations and verification could complete. A backup was saved as `pg_hba.conf.bridgeai.bak`. Set `POSTGRES_PASSWORD` in `.env` and restore scram auth when ready.
+
+**Rationale:** Completes required local DB setup without hardcoding or inventing a committed password.

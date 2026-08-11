@@ -32,9 +32,9 @@ def build_database_url() -> str:
         return explicit
 
     host = os.getenv("POSTGRES_HOST", "localhost")
-    port = os.getenv("POSTGRES_PORT", "5432")
+    port = os.getenv("POSTGRES_PORT", "5433")
     db = os.getenv("POSTGRES_DB", "bridgeai")
-    user = os.getenv("POSTGRES_USER", "bridgeai")
+    user = os.getenv("POSTGRES_USER", "postgres")
     password = os.getenv("POSTGRES_PASSWORD", "")
     return f"postgresql+psycopg://{user}:{password}@{host}:{port}/{db}"
 

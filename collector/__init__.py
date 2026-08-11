@@ -1,1 +1,1 @@
-"""Product data collection package."""
+"""Shared collector utilities and retailer adapters."""

@@ -108,7 +108,8 @@ def test_env_example_has_postgres_placeholders() -> None:
         "POSTGRES_PASSWORD",
     ):
         assert key in text
-    assert "change_me" in text
+    assert "replace_with_your_password" in text
+    assert "5433" in text
 
 
 def test_gitignore_excludes_env_keeps_example() -> None:
@@ -151,9 +152,9 @@ def test_connection_url_builder_without_connecting() -> None:
     # Ensure deterministic URL from discrete fields (no live connection).
     os.environ.pop("DATABASE_URL", None)
     os.environ["POSTGRES_HOST"] = "localhost"
-    os.environ["POSTGRES_PORT"] = "5432"
+    os.environ["POSTGRES_PORT"] = "5433"
     os.environ["POSTGRES_DB"] = "bridgeai"
-    os.environ["POSTGRES_USER"] = "bridgeai"
+    os.environ["POSTGRES_USER"] = "postgres"
     os.environ["POSTGRES_PASSWORD"] = "test_only"
 
     from database.connection import build_database_url
@@ -162,6 +163,8 @@ def test_connection_url_builder_without_connecting() -> None:
     assert url.startswith("postgresql+psycopg://")
     assert "bridgeai" in url
     assert "localhost" in url
+    assert ":5433/" in url
+    assert "postgres:" in url
 
 
 def test_repositories_import() -> None:

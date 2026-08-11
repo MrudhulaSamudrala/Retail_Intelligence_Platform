@@ -168,8 +168,10 @@ pip install -r requirements.txt
 copy .env.example .env   # Windows
 # cp .env.example .env   # macOS / Linux
 
-# 5. Optional: local PostgreSQL — set POSTGRES_* in .env
-# Foundation validation does not require a live database.
+# 5. Local PostgreSQL 18 (Windows native, not Docker)
+#    Copy .env.example to .env and set POSTGRES_PASSWORD.
+#    Defaults: host=localhost port=5433 db=bridgeai user=postgres
+#    Then: alembic upgrade head
 
 # 6. Run foundation tests
 pytest -q
