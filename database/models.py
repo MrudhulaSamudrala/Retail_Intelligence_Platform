@@ -14,6 +14,7 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     ForeignKey,
@@ -27,6 +28,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+# PostgreSQL uses JSONB; SQLite (unit tests) falls back to JSON.
+JSONType = JSON().with_variant(JSONB(), "postgresql")
 
 
 class Base(DeclarativeBase):
@@ -60,7 +64,7 @@ class CollectionRun(Base):
     )
     items_collected: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    run_metadata: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    run_metadata: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -174,7 +178,7 @@ class ProductSnapshot(Base):
     currency: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
     source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     screenshot_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    raw_payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    raw_payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -293,7 +297,7 @@ class RetailerAudit(Base):
     evidence_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     screenshot_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    details: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    details: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -376,7 +380,7 @@ class BannerObservation(Base):
     destination_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_tracked_brand: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     screenshot_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    details: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    details: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

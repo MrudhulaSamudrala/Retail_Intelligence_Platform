@@ -12,8 +12,10 @@ from collections.abc import Generator
 from contextlib import contextmanager
 
 from dotenv import load_dotenv
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
+
+from database.models import Base
 
 load_dotenv()
 
@@ -37,21 +39,22 @@ def build_database_url() -> str:
     return f"postgresql+psycopg://{user}:{password}@{host}:{port}/{db}"
 
 
-def get_engine(*, echo: bool | None = None) -> Engine:
-    """Create a SQLAlchemy engine from environment configuration."""
+def get_engine(*, echo: bool | None = None, url: str | None = None) -> Engine:
+    """Create a SQLAlchemy engine from environment configuration or an explicit URL."""
     if echo is None:
         echo = os.getenv("DB_ECHO", "false").lower() in {"1", "true", "yes"}
 
-    pool_size = int(os.getenv("DB_POOL_SIZE", "5"))
-    max_overflow = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+    database_url = url or build_database_url()
+    kwargs: dict = {"echo": echo, "future": True}
 
-    return create_engine(
-        build_database_url(),
-        echo=echo,
-        pool_size=pool_size,
-        max_overflow=max_overflow,
-        future=True,
-    )
+    # Connection pooling applies to PostgreSQL; SQLite (tests) uses StaticPool defaults.
+    if database_url.startswith("sqlite"):
+        kwargs["connect_args"] = {"check_same_thread": False}
+    else:
+        kwargs["pool_size"] = int(os.getenv("DB_POOL_SIZE", "5"))
+        kwargs["max_overflow"] = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+
+    return create_engine(database_url, **kwargs)
 
 
 def get_session_factory(engine: Engine | None = None) -> sessionmaker[Session]:
@@ -73,3 +76,23 @@ def session_scope(engine: Engine | None = None) -> Generator[Session, None, None
         raise
     finally:
         session.close()
+
+
+def create_all_tables(engine: Engine | None = None) -> None:
+    """Create all ORM tables (dev/test helper). Prefer Alembic for real environments."""
+    eng = engine or get_engine()
+    Base.metadata.create_all(bind=eng)
+
+
+def drop_all_tables(engine: Engine | None = None) -> None:
+    """Drop all ORM tables (test helper only)."""
+    eng = engine or get_engine()
+    Base.metadata.drop_all(bind=eng)
+
+
+def ping(engine: Engine | None = None) -> bool:
+    """Return True if the database accepts a simple connection/query."""
+    eng = engine or get_engine()
+    with eng.connect() as conn:
+        conn.execute(text("SELECT 1"))
+    return True

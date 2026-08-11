@@ -233,3 +233,13 @@ Else `UNKNOWN` (never invent a brand).
 **Assumption:** Add `config/oems.yaml` and `config/compliance.yaml` for clarity and configurability.
 
 **Rationale:** Avoids hardcoding OEMs and audit weights inside Python modules.
+
+---
+
+## A19 — SQLite for offline unit tests of the data layer
+
+**Ambiguity:** How to validate insert/query behavior without a live PostgreSQL instance during local foundation work.
+
+**Assumption:** Unit tests use in-memory SQLite with JSON fallback. Production schema targets PostgreSQL (JSONB) via Alembic migrations. ORM JSON columns use `JSON().with_variant(JSONB(), "postgresql")`.
+
+**Rationale:** Keeps tests hermetic and avoids requiring production credentials; Alembic remains the source of truth for PostgreSQL DDL.

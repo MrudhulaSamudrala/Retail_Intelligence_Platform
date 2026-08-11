@@ -1,13 +1,17 @@
 """Repository helpers for append-only observation persistence.
 
-These helpers intentionally avoid inserting sample/fake data.
-Collectors and analytics layers should call them with real observations.
+Design rules:
+- Product identity may be upserted (latest attributes only).
+- Observation tables are append-only — helpers never update prior rows.
+- Query helpers return chronological history for analytics/dashboard use.
+
+These helpers intentionally avoid inserting sample/fake production data.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -68,10 +72,34 @@ class CollectionRunRepository:
         self.session.flush()
         return run
 
+    def get(self, run_id: int) -> Optional[CollectionRun]:
+        return self.session.get(CollectionRun, run_id)
+
+    def list_for_retailer(
+        self,
+        retailer_code: str,
+        country_code: str,
+        *,
+        limit: int = 50,
+    ) -> Sequence[CollectionRun]:
+        stmt = (
+            select(CollectionRun)
+            .where(
+                CollectionRun.retailer_code == retailer_code,
+                CollectionRun.country_code == country_code,
+            )
+            .order_by(CollectionRun.started_at.desc())
+            .limit(limit)
+        )
+        return self.session.scalars(stmt).all()
+
 
 class ProductRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
+
+    def get_by_id(self, product_id: int) -> Optional[Product]:
+        return self.session.get(Product, product_id)
 
     def get_by_retailer_sku(
         self, retailer_code: str, country_code: str, retailer_sku: str
@@ -134,65 +162,175 @@ class ProductRepository:
         self.session.flush()
         return product
 
+    def list_by_brand(
+        self,
+        brand: str,
+        *,
+        retailer_code: Optional[str] = None,
+        country_code: Optional[str] = None,
+        product_type: Optional[str] = None,
+        limit: int = 200,
+    ) -> Sequence[Product]:
+        stmt = select(Product).where(Product.brand == brand, Product.is_active.is_(True))
+        if retailer_code:
+            stmt = stmt.where(Product.retailer_code == retailer_code)
+        if country_code:
+            stmt = stmt.where(Product.country_code == country_code)
+        if product_type:
+            stmt = stmt.where(Product.product_type == product_type)
+        stmt = stmt.order_by(Product.last_seen_at.desc()).limit(limit)
+        return self.session.scalars(stmt).all()
+
 
 class ObservationRepository:
-    """Append-only writers for historical observation tables."""
+    """Append-only writers and chronological readers for observation tables."""
 
     def __init__(self, session: Session) -> None:
         self.session = session
 
+    # --- writers (append-only) -------------------------------------------------
+
     def add_snapshot(self, **kwargs: Any) -> ProductSnapshot:
-        row = ProductSnapshot(**kwargs)
-        if row.observed_at is None:
-            row.observed_at = _utcnow()
-        self.session.add(row)
-        self.session.flush()
-        return row
+        return self._append(ProductSnapshot, kwargs)
 
     def add_price(self, **kwargs: Any) -> PriceHistory:
-        row = PriceHistory(**kwargs)
-        if row.observed_at is None:
-            row.observed_at = _utcnow()
-        self.session.add(row)
-        self.session.flush()
-        return row
+        return self._append(PriceHistory, kwargs)
 
     def add_promotion(self, **kwargs: Any) -> Promotion:
-        row = Promotion(**kwargs)
-        if row.observed_at is None:
-            row.observed_at = _utcnow()
-        self.session.add(row)
-        self.session.flush()
-        return row
+        return self._append(Promotion, kwargs)
 
     def add_audit(self, **kwargs: Any) -> RetailerAudit:
-        row = RetailerAudit(**kwargs)
-        if row.observed_at is None:
-            row.observed_at = _utcnow()
-        self.session.add(row)
-        self.session.flush()
-        return row
+        return self._append(RetailerAudit, kwargs)
 
     def add_badge(self, **kwargs: Any) -> Badge:
-        row = Badge(**kwargs)
-        if row.observed_at is None:
-            row.observed_at = _utcnow()
-        self.session.add(row)
-        self.session.flush()
-        return row
+        return self._append(Badge, kwargs)
 
     def add_banner(self, **kwargs: Any) -> BannerObservation:
-        row = BannerObservation(**kwargs)
-        if row.observed_at is None:
+        return self._append(BannerObservation, kwargs)
+
+    def add_search(self, **kwargs: Any) -> SearchObservation:
+        return self._append(SearchObservation, kwargs)
+
+    def _append(self, model: type, kwargs: dict[str, Any]) -> Any:
+        row = model(**kwargs)
+        if getattr(row, "observed_at", None) is None:
             row.observed_at = _utcnow()
         self.session.add(row)
         self.session.flush()
         return row
 
-    def add_search(self, **kwargs: Any) -> SearchObservation:
-        row = SearchObservation(**kwargs)
-        if row.observed_at is None:
-            row.observed_at = _utcnow()
-        self.session.add(row)
-        self.session.flush()
-        return row
+    # --- readers (chronological history) --------------------------------------
+
+    def list_snapshots(
+        self, product_id: int, *, limit: Optional[int] = None
+    ) -> Sequence[ProductSnapshot]:
+        stmt = (
+            select(ProductSnapshot)
+            .where(ProductSnapshot.product_id == product_id)
+            .order_by(ProductSnapshot.observed_at.asc())
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return self.session.scalars(stmt).all()
+
+    def list_prices(
+        self, product_id: int, *, limit: Optional[int] = None
+    ) -> Sequence[PriceHistory]:
+        stmt = (
+            select(PriceHistory)
+            .where(PriceHistory.product_id == product_id)
+            .order_by(PriceHistory.observed_at.asc())
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return self.session.scalars(stmt).all()
+
+    def list_promotions(
+        self, product_id: int, *, limit: Optional[int] = None
+    ) -> Sequence[Promotion]:
+        stmt = (
+            select(Promotion)
+            .where(Promotion.product_id == product_id)
+            .order_by(Promotion.observed_at.asc())
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return self.session.scalars(stmt).all()
+
+    def list_audits(
+        self,
+        *,
+        product_id: Optional[int] = None,
+        retailer_code: Optional[str] = None,
+        country_code: Optional[str] = None,
+        brand: Optional[str] = None,
+        check_code: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Sequence[RetailerAudit]:
+        stmt = select(RetailerAudit)
+        if product_id is not None:
+            stmt = stmt.where(RetailerAudit.product_id == product_id)
+        if retailer_code is not None:
+            stmt = stmt.where(RetailerAudit.retailer_code == retailer_code)
+        if country_code is not None:
+            stmt = stmt.where(RetailerAudit.country_code == country_code)
+        if brand is not None:
+            stmt = stmt.where(RetailerAudit.brand == brand)
+        if check_code is not None:
+            stmt = stmt.where(RetailerAudit.check_code == check_code)
+        stmt = stmt.order_by(RetailerAudit.observed_at.asc())
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return self.session.scalars(stmt).all()
+
+    def list_badges(
+        self, product_id: int, *, limit: Optional[int] = None
+    ) -> Sequence[Badge]:
+        stmt = (
+            select(Badge)
+            .where(Badge.product_id == product_id)
+            .order_by(Badge.observed_at.asc())
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return self.session.scalars(stmt).all()
+
+    def list_banners(
+        self,
+        retailer_code: str,
+        country_code: str,
+        *,
+        limit: Optional[int] = None,
+    ) -> Sequence[BannerObservation]:
+        stmt = (
+            select(BannerObservation)
+            .where(
+                BannerObservation.retailer_code == retailer_code,
+                BannerObservation.country_code == country_code,
+            )
+            .order_by(BannerObservation.observed_at.asc())
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return self.session.scalars(stmt).all()
+
+    def list_searches(
+        self,
+        retailer_code: str,
+        country_code: str,
+        keyword: str,
+        *,
+        limit: Optional[int] = None,
+    ) -> Sequence[SearchObservation]:
+        stmt = (
+            select(SearchObservation)
+            .where(
+                SearchObservation.retailer_code == retailer_code,
+                SearchObservation.country_code == country_code,
+                SearchObservation.keyword == keyword,
+            )
+            .order_by(SearchObservation.observed_at.asc(), SearchObservation.position.asc())
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return self.session.scalars(stmt).all()

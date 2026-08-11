@@ -84,6 +84,14 @@ Screenshots are captured when they provide audit or banner evidence; not every o
 
 PostgreSQL is the system of record. SQLAlchemy models live in `database/models.py`.
 
+Schema changes are managed with **Alembic** (`alembic/`, `alembic.ini`). The initial migration `0001_initial_schema` creates all nine core tables.
+
+Apply migrations (local/Render PostgreSQL configured via `.env`):
+
+```bash
+alembic upgrade head
+```
+
 Core tables:
 
 | Table | Role |

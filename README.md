@@ -206,10 +206,26 @@ playwright install
 - [x] `.env.example` and `.gitignore`
 - [x] `requirements.txt`
 - [x] SQLAlchemy models for all required entities + indexes
-- [x] DB connection helpers and append-only repositories (no fake data)
+- [x] DB connection helpers and append-only repositories (no fake production data)
+- [x] Alembic migrations (`alembic/versions/0001_initial_schema.py`)
+- [x] Historical insert/query tests (`tests/test_database_layer.py`)
 - [x] Architecture, methodology, and assumptions documentation
 - [x] README
 - [x] Foundation validation tests
+
+### Database migrations
+
+With PostgreSQL configured in `.env`:
+
+```bash
+alembic upgrade head
+```
+
+Offline SQL preview:
+
+```bash
+alembic upgrade head --sql
+```
 
 ### Planned (next phases)
 
