@@ -207,6 +207,10 @@ def test_snapshots_and_related_observations_preserve_timestamps(session: Session
         product_type="notebook",
         availability="in_stock",
         price_amount=Decimal("1099.0000"),
+        list_price=Decimal("1199.0000"),
+        discount_pct=Decimal("8.3403"),
+        promo_text="Save $100",
+        is_on_promotion=True,
         currency="USD",
         source_url="https://www.newegg.com/p/TEST-SKU-OBS-1",
     )
@@ -270,6 +274,10 @@ def test_snapshots_and_related_observations_preserve_timestamps(session: Session
     session.commit()
 
     assert _as_utc_naive(snap.observed_at) == _as_utc_naive(observed)
+    assert snap.list_price == Decimal("1199.0000")
+    assert snap.discount_pct == Decimal("8.3403")
+    assert snap.promo_text == "Save $100"
+    assert snap.is_on_promotion is True
     assert _as_utc_naive(promo.observed_at) == _as_utc_naive(observed)
     assert _as_utc_naive(audit.observed_at) == _as_utc_naive(observed)
     assert _as_utc_naive(badge.observed_at) == _as_utc_naive(observed)

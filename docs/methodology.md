@@ -62,10 +62,26 @@ Standalone CPU/GPU components typically have **OEM = NULL**.
 ## Pricing
 
 - Observe price at each pricing collection run (planned **3× per day**).
-- Store `price_amount`, optional `list_price`, `currency`, discount fields, and `is_on_promotion`.
+- Store on each append-only **product snapshot**: current price (`price_amount`), original price (`list_price`), discount percentage (`discount_pct`), promotion text (`promo_text`), and timestamp (`observed_at`).
+- Mirror priced observations in append-only `price_history` (with currency / discount amount / promo flag) and deal text in `promotions`.
 - Preserve retailer-native currency (**USD** for Newegg, **BRL** for Mercado Libre).
 - Do **not** convert currencies unless a specific cross-country comparison explicitly requires it.
-- Append to `price_history`; never overwrite prior prices.
+- Append only — never overwrite prior prices, snapshots, or promotions.
+
+### Pricing / promotion analytics
+
+Implemented in `analytics/pricing/` over real DB rows:
+
+| Metric | Function |
+|---|---|
+| Average / median price by brand | `average_price_by_brand`, `median_price_by_brand` |
+| Average discount | `average_discount` |
+| Discounted product count | `count_discounted_products` |
+| Price change over time | `price_change_over_time` |
+| Discount change over time | `discount_change_over_time` |
+| Retailer / country / product-type comparison | `compare_by_retailer`, `compare_by_country`, `compare_by_product_type` |
+
+Cross-sectional metrics use the **latest** `price_history` row per product within an optional `PricingScope`. Time series bucket all observations by UTC day. Currencies are never auto-converted.
 
 ## Promotions
 

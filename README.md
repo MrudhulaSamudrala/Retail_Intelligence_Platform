@@ -101,7 +101,8 @@ BridgeAI/
 │   ├── parsers/
 │   └── audit/
 ├── analytics/
-│   └── compliance/
+│   ├── compliance/
+│   └── pricing/
 ├── database/
 │   ├── models.py
 │   ├── connection.py
@@ -238,6 +239,7 @@ alembic upgrade head --sql
 - [ ] Parsing / normalization / brand-OEM attribution pipeline
 - [ ] Audit evaluation engine (S1–P5)
 - [x] Overall Brand Compliance Score (`analytics/compliance/`; Notebook 85% + Desktop 15%)
+- [x] Pricing / promotion analytics (`analytics/pricing/`)
 - [ ] Analytics (SoS, SoV, trends, insights)
 - [ ] Excel/CSV report generation
 - [ ] Streamlit dashboard

@@ -113,6 +113,7 @@ Connection settings come from environment variables (see `.env.example`). Secret
 Planned modules under `analytics/`:
 
 - Overall Brand Compliance Score (`analytics/compliance/`: Notebook 85% + Desktop 15%; configurable S1–P5 combination — see `docs/clarifications.md`)
+- Pricing / promotion analytics (`analytics/pricing/`: avg/median by brand, discounts, time series, retailer/country/type comparisons)
 - Share of Shelf (gaming-eligible deduplicated listings)
 - Share of Voice (configurable keyword sets)
 - Historical price / promo / compliance trends

@@ -1,21 +1,22 @@
-"""Analytics: compliance, pricing/promotions, Share of Shelf, Share of Voice, trends."""
+"""Pricing and promotion analytics over append-only database observations.
 
-from analytics.compliance import (
-    AuditScoreRow,
-    ComplianceScore,
-    ComplianceScoreConfig,
-    compute_brand_scores,
-    compute_compliance_score,
-    compute_country_scores,
-    compute_retailer_scores,
-    compute_segment_score,
-    load_compliance_score_config,
-)
-from analytics.pricing import (
+Cross-sectional metrics (averages, medians, discounted counts, comparisons) use
+the **latest** ``price_history`` row per product within optional filters.
+
+Time-series metrics bucket all matching observations by calendar day (UTC).
+
+Currencies are never converted: comparisons stay within a single currency unless
+the caller explicitly omits a currency filter (results are then grouped by
+currency).
+"""
+
+from analytics.pricing.models import (
     DimensionPriceSummary,
     PriceObservation,
     PriceTimePoint,
     PricingScope,
+)
+from analytics.pricing.queries import (
     average_discount,
     average_price_by_brand,
     compare_by_country,
@@ -30,17 +31,6 @@ from analytics.pricing import (
 )
 
 __all__ = [
-    # Compliance
-    "AuditScoreRow",
-    "ComplianceScore",
-    "ComplianceScoreConfig",
-    "compute_brand_scores",
-    "compute_compliance_score",
-    "compute_country_scores",
-    "compute_retailer_scores",
-    "compute_segment_score",
-    "load_compliance_score_config",
-    # Pricing / promotions
     "DimensionPriceSummary",
     "PriceObservation",
     "PriceTimePoint",

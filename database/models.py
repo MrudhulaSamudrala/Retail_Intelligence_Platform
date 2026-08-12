@@ -174,7 +174,21 @@ class ProductSnapshot(Base):
     availability: Mapped[Optional[str]] = mapped_column(
         String(64), nullable=True, doc="in_stock|out_of_stock|limited|unknown"
     )
-    price_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4), nullable=True)
+    price_amount: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(14, 4), nullable=True, doc="Current / selling price at observation time"
+    )
+    list_price: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(14, 4), nullable=True, doc="Original / was price at observation time"
+    )
+    discount_pct: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(8, 4), nullable=True, doc="Discount percentage vs list_price"
+    )
+    promo_text: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, doc="Promotion / deal text captured with the snapshot"
+    )
+    is_on_promotion: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, doc="True when a promo/discount was observed"
+    )
     currency: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
     source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     screenshot_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
