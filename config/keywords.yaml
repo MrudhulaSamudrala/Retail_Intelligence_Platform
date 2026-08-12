@@ -1,40 +1,61 @@
 # Share of Voice / search visibility keywords.
 # Implementation assumption: keyword list was NOT supplied by Bridge AI.
 # Small, defensible gaming purchase-intent sets per retailer/country.
-# See docs/assumptions.md for rationale.
+# Add/remove queries here without changing Python code.
+# See docs/assumptions.md (A12/A13) and docs/methodology.md (Share of Voice).
 
-keywords:
+retailers:
   newegg:
-    country_code: US
-    language: en
-    queries:
-      - gaming laptop
-      - gaming desktop
-      - gaming pc
-      - rtx gaming laptop
-      - ryzen gaming laptop
-      - intel gaming laptop
-      - gaming workstation
-      - graphics card gaming
-      - desktop processor gaming
+    countries:
+      US:
+        language: en
+        queries:
+          - gaming laptop
+          - gaming notebook
+          - gaming desktop
+          - rtx gaming laptop
+          - ryzen gaming laptop
+          - intel gaming laptop
 
   mercadolibre:
-    country_code: BR
-    language: pt-BR
-    queries:
-      - notebook gamer
-      - pc gamer
-      - desktop gamer
-      - notebook gamer rtx
-      - notebook gamer ryzen
-      - notebook gamer intel
-      - workstation gamer
-      - placa de video gamer
-      - processador gamer
+    countries:
+      BR:
+        language: pt-BR
+        queries:
+          - notebook gamer
+          - notebook gamer rtx
+          - notebook gamer ryzen
+          - pc gamer
+          - desktop gamer
 
 share_of_voice:
-  # Implementation assumption: SoV = brand appearances in top N organic results
-  # for configured keywords, averaged across the keyword set.
-  top_n_results: 20
+  # Denominator = tracked-brand search-result appearances only.
+  # UNKNOWN is stored but excluded unless include_unknown_in_sov_denominator is true.
+  tracked_brands:
+    - Intel
+    - AMD
+    - Qualcomm
+    - Apple
+  include_unknown_in_sov_denominator: false
+  # Preferred reporting Top-N values (configurable; not hardcoded to a single N).
+  top_n_options:
+    - 3
+    - 5
+    - 10
+    - 20
+  default_top_n: 10
+  # When sponsored flags are available, prefer organic for exact SoV reporting.
+  prefer_organic: true
   attribute_by: brand
-  unknown_handling: exclude_from_numerator_include_in_denominator
+
+pagination:
+  max_pages: 3
+  max_results_per_keyword: 60
+  stop_on_empty_page: true
+
+# Collection completeness labels used on search_observations.collection_status
+collection_statuses:
+  - COMPLETE
+  - PARTIAL
+  - FAILED
+  - ZERO_RESULTS

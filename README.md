@@ -104,9 +104,11 @@ BridgeAI/
 │   ├── compliance/
 │   ├── pricing/
 │   ├── share_of_shelf/
-│   └── banner_share/
+│   ├── banner_share/
+│   └── share_of_voice/
 ├── collector/
 │   ├── banners/
+│   ├── search/
 ├── database/
 │   ├── models.py
 │   ├── connection.py
@@ -246,7 +248,8 @@ alembic upgrade head --sql
 - [x] Pricing / promotion analytics (`analytics/pricing/`)
 - [x] Share of Shelf analytics (`analytics/share_of_shelf/`)
 - [x] Homepage banner tracking (`collector/banners/`) + Banner Share (`analytics/banner_share/`)
-- [ ] Analytics (SoV, trends, insights)
+- [x] Share of Voice / search visibility (`collector/search/`, `analytics/share_of_voice/`)
+- [ ] Analytics (trends, insights)
 - [ ] Excel/CSV report generation
 - [ ] Streamlit dashboard
 - [ ] Automated scheduling on Render

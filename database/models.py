@@ -465,6 +465,17 @@ class SearchObservation(Base):
     oem: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_sponsored: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    evidence_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    selector: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    collection_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="COMPLETE",
+        doc="COMPLETE|PARTIAL|FAILED|ZERO_RESULTS",
+    )
+    search_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    pages_collected: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    details: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -482,4 +493,5 @@ class SearchObservation(Base):
         ),
         Index("ix_search_observations_brand_position", "brand", "position"),
         Index("ix_search_observations_product", "product_id"),
+        Index("ix_search_observations_collection_status", "collection_status"),
     )

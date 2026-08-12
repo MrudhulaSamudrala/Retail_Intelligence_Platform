@@ -276,6 +276,11 @@ def test_snapshots_and_related_observations_preserve_timestamps(session: Session
         brand="Qualcomm",
         oem="Lenovo",
         is_sponsored=False,
+        evidence_text="Lenovo Yoga Snapdragon X Elite",
+        selector=".item-cell",
+        collection_status="COMPLETE",
+        search_url="https://www.newegg.com/p/pl?d=gaming+laptop",
+        pages_collected=1,
     )
     runs.complete(run, items_collected=1)
     session.commit()

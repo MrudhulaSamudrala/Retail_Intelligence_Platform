@@ -226,15 +226,56 @@ Implemented in `analytics/share_of_shelf/`. Inclusion rules id: `sos_universe_v1
 
 **Config:** `config/product_types.yaml` → `share_of_shelf`, `excluded_categories`
 
-## Share of Voice (SoV)
+## Share of Voice (SoV) / Search Visibility
 
-Because the brief does not supply keywords, SoV uses a **configurable keyword set** in `config/keywords.yaml` (implementation assumption — not supplied by Bridge AI).
+Because the brief does not supply keywords, SoV uses a **configurable keyword set** in `config/keywords.yaml` (implementation assumption — not supplied by Bridge AI). Keywords are retailer- and country-specific and editable without code changes.
 
-**Planned formula (assumed):**
+Implemented in `collector/search/` + `analytics/share_of_voice/`. Observations append to `search_observations` (never overwritten).
 
-For each keyword, take the top N organic results (default N=20). Brand SoV is the share of those result slots attributed to the brand, averaged across the keyword set for that retailer/country.
+### Search-result definition
 
-Sponsored vs organic is stored so organic-only views remain possible.
+A search-result observation is one ranked product slot returned for a keyword query on a retailer homepage/search SERP, including page number and absolute position.
+
+Identity preference: retailer SKU / product URL path ID, then URL — **not** title alone.
+
+### Pagination
+
+- Pagination is explicit (`config/keywords.yaml` → `pagination.max_pages`, `max_results_per_keyword`).
+- Each accessed page number is stored.
+- Collection stops when no next page exists, max pages/results is reached, or pagination becomes unreliable.
+- Page 1 is **never** assumed to be the full result set.
+
+### Completeness
+
+| Status | Meaning |
+|---|---|
+| `COMPLETE` | Pages collected reliably through natural end or configured cap with reliable pagination signals |
+| `PARTIAL` | Some results collected but pagination incomplete/unreliable (e.g. max pages hit with more available, bot interruption mid-run) |
+| `FAILED` | Search could not be collected |
+| `ZERO_RESULTS` | Search succeeded but returned no product results |
+
+**Exact Share of Voice** is only claimed for `COMPLETE` collections (`require_complete=True` or `collection_basis=exact`). Otherwise label metrics as **observed / partial search visibility**.
+
+### Metrics
+
+- **Brand Presence** — brand appears ≥1 time in the (latest) result set
+- **Appearances** — count of search-result observations for the brand (deduped by position within a search batch)
+- **Top-N** — configurable (`top_n_options`: 3, 5, 10, 20); `top_n_count` / presence within positions ≤ N
+- **Average ranking** — mean of **observed** positions only (missing brands are not rank 0)
+- **Share of Voice** =
+
+```
+brand appearances / total tracked-brand appearances
+```
+
+Tracked brands: Intel, AMD, Qualcomm, Apple. **UNKNOWN is excluded from the denominator** unless `include_unknown_in_sov_denominator: true`.
+
+### Historical trends
+
+Daily SoV / appearances / top-N / average rank by retailer, country, keyword, brand from append-only observations.
+
+**Config:** `config/keywords.yaml`  
+**Commands:** `python -m collector.search.run` · `python -m analytics.share_of_voice.run_existing`
 
 ## Historical data
 

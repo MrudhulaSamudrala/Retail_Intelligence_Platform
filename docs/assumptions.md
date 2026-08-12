@@ -165,7 +165,7 @@ Else `UNKNOWN` (never invent a brand).
 
 **Ambiguity:** Brief does not define keywords.
 
-**Assumption:** Maintain a small, defensible gaming purchase-intent keyword set per retailer/country in `config/keywords.yaml` (EN for Newegg, PT-BR for Mercado Libre).
+**Assumption:** Maintain a small, defensible gaming purchase-intent keyword set per retailer/country in `config/keywords.yaml` under `retailers.<code>.countries.<CC>.queries` (EN for Newegg US, PT-BR for Mercado Libre BR). Keywords are editable without code changes.
 
 **Rationale:** Enables a working SoV metric aligned to tracked product scope.
 
@@ -179,9 +179,21 @@ Else `UNKNOWN` (never invent a brand).
 
 **Ambiguity:** Exact SoV calculation.
 
-**Assumption:** For each keyword, use top N results (default 20). Brand SoV = share of result slots attributed to that brand, averaged across keywords. Store sponsored flags; default reporting prefers organic slots when identifiable.
+**Assumption:**
 
-**Config:** `config/keywords.yaml` → `share_of_voice`
+```
+SoV(brand) = brand search-result appearances / total tracked-brand appearances
+```
+
+- Tracked brands: Intel, AMD, Qualcomm, Apple
+- UNKNOWN stored but **excluded from denominator** by default
+- Top-N is configurable (3/5/10/20); default reporting Top-10
+- Average rank uses observed positions only
+- Exact SoV only for `COMPLETE` searches; otherwise report observed/partial visibility
+- Pagination limits: `pagination.max_pages` / `max_results_per_keyword`
+
+**Config:** `config/keywords.yaml` → `share_of_voice`, `pagination`  
+**Code:** `collector/search/`, `analytics/share_of_voice/`
 
 ---
 
