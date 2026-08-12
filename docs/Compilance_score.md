@@ -251,3 +251,116 @@ Qualcomm / Apple = 0%
 - High UNKNOWN on Mercado Libre is expected when carousel copy has no Intel/AMD/Qualcomm/Apple tokens — brands are not guessed
 - Some Newegg homepage swipers are promotional combo tiles; product cards/nav/footer are excluded by selector rules
 
+
+
+## Share of Voice / Search Visibility
+
+==================================
+
+Retailers:                 2 (newegg, mercadolibre)
+
+Countries:                 2 (US, BR)
+
+Keywords configured:       11 (config/keywords.yaml)
+
+Searches attempted:        6  (smoke run: --limit-per-retailer 3)
+
+Complete searches:         3  (newegg × 3 keywords)
+
+Partial searches:          0
+
+Failed searches:           0
+
+Zero-result searches:      3  (mercadolibre × 3 — extraction returned no cards)
+
+Result observations:       180
+
+Unique products (sku):     149
+
+Tracked-brand results:     175
+
+UNKNOWN results:           5
+
+Brand Presence:
+
+Intel       present
+
+AMD         present
+
+Qualcomm    absent
+
+Apple       absent
+
+Appearances:
+
+Intel       104
+
+AMD         71
+
+Qualcomm    0
+
+Apple       0
+
+Top-N:
+
+Top 3:   Intel 6 | AMD 3 | Qualcomm 0 | Apple 0
+
+Top 5:   Intel 11 | AMD 4 | Qualcomm 0 | Apple 0
+
+Top 10:  Intel 21 | AMD 9 | Qualcomm 0 | Apple 0
+
+Top 20:  Intel 36 | AMD 24 | Qualcomm 0 | Apple 0
+
+Average Ranking (observed only):
+
+Intel       30.02 (n=104)
+
+AMD         30.28 (n=71)
+
+Qualcomm    n/a
+
+Apple       n/a
+
+Share of Voice (tracked-brand denominator; UNKNOWN excluded):
+
+Intel       59.43%
+
+AMD         40.57%
+
+Qualcomm     0.00%
+
+Apple        0.00%
+
+Database persistence: PASS (search_observations, append-only)
+
+Tests: 9 passed (tests/test_share_of_[voice.py](http://voice.py))
+
+### Reproduce:
+
+
+
+# Collection (no product pipeline changes)
+
+python -m [collector.search.run](http://collector.search.run)
+
+python -m [collector.search.run](http://collector.search.run) --limit-per-retailer 3
+
+# Analytics
+
+python -m analytics.share_of_[voice.run](http://voice.run)_existing
+
+### **Artifacts**
+
+1. **Table:** `search_observations` (+ migration `0004_search_visibility_fields`)
+2. **Keywords:** `config/keywords.yaml` (retailer × country × queries; editable without code)
+3. **Docs:** `docs/methodology.md`, `docs/assumptions.md` (A12/A13)
+
+
+
+### **Limitations**
+
+- Mercado Libre returned **ZERO_RESULTS** (page loaded but card selectors found no items) — not claimed as SoV for BR.
+- Newegg metrics are within the **first 60 results / up to 3 pages** config, not a claim of the full SERP.
+- UNKNOWN excluded from SoV denominator by default.
+- Independent of Share of Shelf product universe.
+
