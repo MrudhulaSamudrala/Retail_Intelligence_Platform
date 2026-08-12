@@ -1,0 +1,28 @@
+# Production orchestration settings for `python -m collector.run --all`.
+# Secrets remain in environment variables / .env (never commit credentials).
+
+orchestration:
+  trigger_source: cli  # overridden by RENDER / CRON env when present
+  product_limit_per_retailer: 20
+  search_limit_per_retailer: 3
+  stale_running_hours: 6
+  concurrent_lock_key: 74628301  # PostgreSQL advisory lock key
+  exit_code_partial: 0  # Render-friendly: PARTIAL exits 0; set 2 to alert
+  retries:
+    max_attempts: 3
+    base_delay_seconds: 2
+  timeouts:
+    component_seconds: 1800
+    page_timeout_ms: 45000
+
+# Table write semantics (documentation for operators):
+# products              → upsert by (retailer_code, country_code, retailer_sku)
+# product_snapshots     → append-only
+# price_history         → append-only
+# promotions            → append-only
+# retailer_audits       → append-only
+# badges                → append-only
+# banner_observations   → append-only
+# search_observations   → append-only
+# collection_runs       → insert + finalize status
+# collection_run_steps  → insert + finalize status

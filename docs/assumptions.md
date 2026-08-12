@@ -235,11 +235,13 @@ Each check independently returns `PASS` / `FAIL` / `UNKNOWN` with preserved evid
 
 **Ambiguity:** Exact clock times for 3× daily runs.
 
-**Assumption:** UTC cron `0 2,10,18 * * *` for pricing/audits; banner cron `0 14 * * *`.
+**Assumption:** UTC cron `0 8,14,20 * * *` for the production runner
+(`python -m collector.run --all`), matching 08:00 / 14:00 / 20:00 in project
+timezone `UTC`. Documented in `docs/deployment.md`.
 
-**Rationale:** Evenly spaced coverage across a day; adjustable in config.
+**Rationale:** Aligns with the brief’s three-times-daily windows; Render Cron is UTC.
 
-**Config:** `config/retailers.yaml` → `scheduling`
+**Config:** `config/retailers.yaml` → `scheduling`; `config/orchestration.yaml`
 
 ---
 

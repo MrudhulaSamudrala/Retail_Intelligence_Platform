@@ -32,8 +32,9 @@ retailers:
       share_of_voice_per_day: 1
 
 scheduling:
-  # Cron expressions are documented for Render Cron Jobs (UTC).
-  # Implementation assumption: three evenly spaced pricing/audit windows.
-  pricing_audit_cron: "0 2,10,18 * * *"
-  banner_cron: "0 14 * * *"
+  # Cron expressions for Render Cron Jobs (UTC). See docs/deployment.md.
+  # Production runner: python -m collector.run --all at 08:00 / 14:00 / 20:00 UTC.
+  pricing_audit_cron: "0 8,14,20 * * *"
+  banner_cron: "0 8,14,20 * * *"
+  production_cron: "0 8,14,20 * * *"
   timezone: UTC

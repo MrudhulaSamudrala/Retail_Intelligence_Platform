@@ -138,9 +138,11 @@ Planned pages (not built in foundation phase):
 
 ## Scheduling
 
-Target: **Render Cron Jobs** invoking collector entrypoints on a UTC schedule defined in `config/retailers.yaml`.
+Target: **Render Cron Jobs** invoking `python -m collector.run --all` on a UTC
+schedule (`0 8,14,20 * * *`). See `docs/deployment.md`.
 
-Foundation phase does **not** deploy schedulers.
+Foundation collectors remain available as selective `--step` / `--retailer` flags;
+the production runner does **not** embed an infinite sleep loop.
 
 ## Deployment (planned)
 

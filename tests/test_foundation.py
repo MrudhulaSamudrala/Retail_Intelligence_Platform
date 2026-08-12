@@ -30,6 +30,7 @@ REQUIRED_DOCS = [
     "methodology.md",
     "assumptions.md",
     "clarifications.md",
+    "deployment.md",
 ]
 
 REQUIRED_MODELS = [

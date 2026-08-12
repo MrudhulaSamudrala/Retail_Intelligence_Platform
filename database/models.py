@@ -77,11 +77,56 @@ class CollectionRun(Base):
     badges: Mapped[list["Badge"]] = relationship(back_populates="collection_run")
     banners: Mapped[list["BannerObservation"]] = relationship(back_populates="collection_run")
     searches: Mapped[list["SearchObservation"]] = relationship(back_populates="collection_run")
+    steps: Mapped[list["CollectionRunStep"]] = relationship(back_populates="collection_run")
 
     __table_args__ = (
         Index("ix_collection_runs_retailer_country", "retailer_code", "country_code"),
         Index("ix_collection_runs_started_at", "started_at"),
         Index("ix_collection_runs_run_type_status", "run_type", "status"),
+    )
+
+
+class CollectionRunStep(Base):
+    """Per-component status for a production / orchestration collection run."""
+
+    __tablename__ = "collection_run_steps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    collection_run_id: Mapped[int] = mapped_column(
+        ForeignKey("collection_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    component: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="newegg|mercadolibre|audits|badges|pricing|banners|search",
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        doc="RUNNING|SUCCESS|PARTIAL|FAILED|SKIPPED",
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    records_processed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    details: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONType, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    collection_run: Mapped["CollectionRun"] = relationship(back_populates="steps")
+
+    __table_args__ = (
+        Index(
+            "ix_collection_run_steps_run_component",
+            "collection_run_id",
+            "component",
+        ),
+        Index("ix_collection_run_steps_status", "status"),
     )
 
 

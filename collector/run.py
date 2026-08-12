@@ -1,4 +1,8 @@
-"""CLI entrypoint: python -m collector.run --retailer newegg --limit 20"""
+"""CLI entrypoint: python -m collector.run --all
+
+Production orchestration and selective retailer/step execution.
+Also preserves legacy single-retailer product collection.
+"""
 
 from __future__ import annotations
 
@@ -6,40 +10,96 @@ import argparse
 import asyncio
 import json
 import sys
-from typing import Callable
+from typing import Optional, Sequence
 
 from dotenv import load_dotenv
 
-from collector.base import RetailerCollector
 from collector.logging_utils import setup_logging
-from collector.pipeline import CollectionPipeline
 from database.connection import get_engine, get_session_factory
 
 
-def _build_retailer(code: str) -> RetailerCollector:
-    if code == "newegg":
-        from collector.retailers.newegg import build_collector
+STEP_CHOICES = (
+    "newegg",
+    "mercadolibre",
+    "audits",
+    "badges",
+    "pricing",
+    "banners",
+    "search",
+)
 
-        return build_collector()
-    if code == "mercadolibre":
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "BridgeAI production collection runner. "
+            "Use --all for the full orchestrated pipeline."
+        )
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Run the full production orchestration pipeline once and exit",
+    )
+    parser.add_argument(
+        "--retailer",
+        choices=["newegg", "mercadolibre"],
+        action="append",
+        help="Limit product collection to retailer(s); can be repeated",
+    )
+    parser.add_argument(
+        "--step",
+        choices=STEP_CHOICES,
+        action="append",
+        help="Run only selected orchestration step(s); can be repeated",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Max products per retailer (default from config/orchestration.yaml)",
+    )
+    parser.add_argument(
+        "--search-limit",
+        type=int,
+        default=None,
+        help="Max search queries per retailer",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate DB/config/Playwright without inserting observations",
+    )
+    parser.add_argument(
+        "--legacy-product-only",
+        action="store_true",
+        help=(
+            "Legacy mode: run only the product CollectionPipeline for --retailer "
+            "(no production run tracking). Requires --retailer."
+        ),
+    )
+    args = parser.parse_args(argv)
+    if not args.all and not args.retailer and not args.step and not args.dry_run:
+        parser.error("Specify --all, --retailer, --step, and/or --dry-run")
+    if args.legacy_product_only and not args.retailer:
+        parser.error("--legacy-product-only requires --retailer")
+    return args
+
+
+async def _legacy_product_run(retailer: str, limit: int) -> int:
+    from collector.pipeline import CollectionPipeline
+    from collector.retailers.newegg import build_collector
+
+    if retailer == "mercadolibre":
         raise NotImplementedError(
             "Mercado Libre collector is not implemented yet. "
             "Common pipeline is ready for a future adapter."
         )
-    raise SystemExit(f"Unsupported retailer: {code}")
+    if retailer != "newegg":
+        raise SystemExit(f"Unsupported retailer: {retailer}")
 
-
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="BridgeAI retailer collection runner")
-    parser.add_argument("--retailer", required=True, choices=["newegg", "mercadolibre"])
-    parser.add_argument("--limit", type=int, default=20, help="Max products to collect")
-    return parser.parse_args(argv)
-
-
-async def _async_main(retailer: str, limit: int) -> int:
     logger = setup_logging()
-    load_dotenv()
-    collector = _build_retailer(retailer)
+    collector = build_collector()
     engine = get_engine()
     session_factory = get_session_factory(engine)
     session = session_factory()
@@ -60,26 +120,6 @@ async def _async_main(retailer: str, limit: int) -> int:
         "failed": len(outcome.failed),
         "skipped_duplicates": len(outcome.skipped_duplicates),
         "bot_blocked": outcome.bot_blocked,
-        "products": [
-            {
-                "sku": p.retailer_sku,
-                "title": p.title,
-                "brand": p.brand,
-                "oem": p.oem,
-                "product_type": p.product_type,
-                "price": str(p.price_amount) if p.price_amount is not None else None,
-                "currency": p.currency,
-                "availability": p.availability,
-                "url": p.source_url,
-                "processor": p.processor,
-                "gpu": p.gpu,
-                "ram": p.ram,
-                "storage": p.storage,
-                "promo_text": p.promo_text,
-            }
-            for p in outcome.success
-        ],
-        "errors": outcome.failed[:20],
     }
     print(json.dumps(summary, indent=2))
     logger.info(
@@ -93,9 +133,52 @@ async def _async_main(retailer: str, limit: int) -> int:
     return 0 if outcome.success else 1
 
 
+async def _orchestrated_main(args: argparse.Namespace) -> int:
+    from collector.orchestration.runner import run_production
+
+    setup_logging()
+    load_dotenv()
+    engine = get_engine()
+    session_factory = get_session_factory(engine)
+    session = session_factory()
+    try:
+        retailers: Optional[Sequence[str]] = args.retailer
+        steps: Optional[Sequence[str]] = args.step
+        # --all with no filters → full pipeline
+        if args.all and not retailers and not steps:
+            retailers = None
+            steps = None
+        elif args.all and (retailers or steps):
+            # --all plus filters still allowed (narrowed full-order run)
+            pass
+        elif not args.all and retailers and not steps:
+            # product retailers only (skip banners/search unless also in --step)
+            steps = list(retailers) + ["audits", "badges", "pricing"]
+        elif not args.all and steps and not retailers:
+            pass
+
+        result = await run_production(
+            session,
+            product_limit=args.limit,
+            search_limit=args.search_limit,
+            retailers=retailers,
+            steps=steps,
+            dry_run=args.dry_run,
+        )
+        return result.exit_code
+    finally:
+        session.close()
+        engine.dispose()
+
+
 def main(argv: list[str] | None = None) -> None:
+    load_dotenv()
     args = parse_args(argv)
-    raise SystemExit(asyncio.run(_async_main(args.retailer, args.limit)))
+    if args.legacy_product_only:
+        limit = args.limit if args.limit is not None else 20
+        code = asyncio.run(_legacy_product_run(args.retailer[0], limit))
+        raise SystemExit(code)
+    raise SystemExit(asyncio.run(_orchestrated_main(args)))
 
 
 if __name__ == "__main__":
