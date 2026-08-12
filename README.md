@@ -103,7 +103,10 @@ BridgeAI/
 ├── analytics/
 │   ├── compliance/
 │   ├── pricing/
-│   └── share_of_shelf/
+│   ├── share_of_shelf/
+│   └── banner_share/
+├── collector/
+│   ├── banners/
 ├── database/
 │   ├── models.py
 │   ├── connection.py
@@ -242,6 +245,7 @@ alembic upgrade head --sql
 - [x] Overall Brand Compliance Score (`analytics/compliance/`; Notebook 85% + Desktop 15%)
 - [x] Pricing / promotion analytics (`analytics/pricing/`)
 - [x] Share of Shelf analytics (`analytics/share_of_shelf/`)
+- [x] Homepage banner tracking (`collector/banners/`) + Banner Share (`analytics/banner_share/`)
 - [ ] Analytics (SoV, trends, insights)
 - [ ] Excel/CSV report generation
 - [ ] Streamlit dashboard

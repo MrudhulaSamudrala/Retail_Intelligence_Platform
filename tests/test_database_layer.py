@@ -253,7 +253,14 @@ def test_snapshots_and_related_observations_preserve_timestamps(session: Session
         brand_detected="AMD",
         oem_detected=None,
         headline_text="AMD Ryzen AI PCs",
+        discount_text="Save $100",
+        badge_text="Limited Time",
+        link_present=True,
+        destination_url="https://www.newegg.com/amd",
         is_tracked_brand=True,
+        evidence_text="AMD Ryzen AI PCs",
+        selector="div.hero-banner",
+        detection_method="text",
     )
     search = observations.add_search(
         collection_run_id=run.id,

@@ -386,13 +386,39 @@ class BannerObservation(Base):
     page_type: Mapped[str] = mapped_column(
         String(64), nullable=False, default="homepage", doc="homepage|category|campaign"
     )
-    page_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    page_url: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, doc="Homepage / source URL inspected"
+    )
     banner_position: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    brand_detected: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    brand_detected: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+        doc="Intel|AMD|Qualcomm|Apple|UNKNOWN|AMBIGUOUS",
+    )
     oem_detected: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    headline_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    headline_text: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, doc="Primary banner / promotional text observed"
+    )
+    discount_text: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, doc="Discount / promotion text if present"
+    )
+    badge_text: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, doc="Badge / special-offer text if present"
+    )
+    link_present: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     destination_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_tracked_brand: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    evidence_text: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, doc="Combined evidence used for brand/banner detection"
+    )
+    selector: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, doc="DOM selector / path evidence"
+    )
+    detection_method: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+        doc="dom|text|aria_label|alt|title",
+    )
     screenshot_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     details: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

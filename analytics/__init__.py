@@ -1,5 +1,11 @@
 """Analytics: compliance, pricing/promotions, Share of Shelf, Share of Voice, trends."""
 
+from analytics.banner_share import (
+    BannerShareScope,
+    BannerShareSnapshot,
+    banner_share_by_brand,
+    banner_share_trends,
+)
 from analytics.compliance import (
     AuditScoreRow,
     ComplianceScore,
@@ -38,6 +44,11 @@ from analytics.share_of_shelf import (
 )
 
 __all__ = [
+    # Banner Share
+    "BannerShareScope",
+    "BannerShareSnapshot",
+    "banner_share_by_brand",
+    "banner_share_trends",
     # Compliance
     "AuditScoreRow",
     "ComplianceScore",

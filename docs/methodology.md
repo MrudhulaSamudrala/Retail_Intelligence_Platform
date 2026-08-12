@@ -141,9 +141,62 @@ Do **not** apply Notebook/Desktop weighting to Workstations, Tablets, CPU, or GP
 
 ## Homepage banner tracking
 
-- Capture homepage (and optionally campaign/category landing) banners **at least once per day**.
-- Record position, detected brand/OEM, headline, destination URL, tracked-brand flag, and screenshot when practical.
-- If banners are cheap to capture during the 3× pricing runs, additional observations may be stored, but daily cadence is the brief requirement.
+Homepage Banner Tracking is a **retailer homepage-level** observation stream. It is independent of the product universe used by Share of Shelf.
+
+Implemented in `collector/banners/` + `analytics/banner_share/`. Observations append to `banner_observations` (never overwritten).
+
+### Banner definition
+
+A **banner** is a visually distinct promotional/marketing component on the homepage, such as:
+
+- Hero banner
+- Promotional carousel slide
+- Brand promotional tile
+- Promotional graphic
+- Brand marketing section
+
+**Not** banners (excluded):
+
+- Product cards / individual product listings
+- Navigation or category links
+- Footer content
+- Search results
+- Normal specification / product body text
+
+Only content that is actually functioning as a homepage promotional/banner element is counted. Detection does **not** invent, infer, or fabricate banners.
+
+### Evidence priority
+
+1. DOM structure (candidate selection)
+2. Visible text
+3. Accessible labels (`aria-label`)
+4. `alt`
+5. `title`
+
+OCR is disabled by default (`config/banners.yaml` → `detection.ocr_fallback_enabled: false`) and must never override confident DOM/text evidence.
+
+### Brand detection
+
+Tracked brands only: **Intel, AMD, Qualcomm, Apple** (token-boundary matching).
+
+If a promotional banner is observed but the brand cannot be identified confidently → store `UNKNOWN` or `AMBIGUOUS` (conflicting brands). Never guess.
+
+### Banner Share
+
+```
+Banner Share(brand) =
+  brand banner observations /
+  total tracked-brand banner observations
+```
+
+- Denominator = observations with a tracked brand (Intel/AMD/Qualcomm/Apple)
+- `UNKNOWN` / `AMBIGUOUS` are **stored** for auditability but **excluded** from the denominator unless `include_unknown_in_banner_share: true`
+- Do **not** use Share of Shelf product counts as the Banner Share denominator
+
+Supports slices by brand, retailer, date, and historical daily trends (`banner_share_trends`).
+
+**Config:** `config/banners.yaml`  
+**Cadence:** at least 1× per day (`config/retailers.yaml` → `collection.banners_per_day`)
 
 ## Share of Shelf (SoS)
 

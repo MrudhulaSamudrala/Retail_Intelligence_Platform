@@ -1,0 +1,103 @@
+# Homepage banner tracking configuration.
+# Banner Share analytics read tracked_brands from here.
+# OCR is disabled by default and must never override confident DOM/text evidence.
+
+tracked_brands:
+  - Intel
+  - AMD
+  - Qualcomm
+  - Apple
+
+unknown_brand_codes:
+  - UNKNOWN
+  - AMBIGUOUS
+
+# Banner Share denominator uses tracked brands only.
+# UNKNOWN / AMBIGUOUS observations are stored but excluded from the denominator
+# unless include_unknown_in_banner_share is explicitly true.
+include_unknown_in_banner_share: false
+
+detection:
+  ocr_fallback_enabled: false
+  evidence_priority:
+    - dom
+    - text
+    - aria_label
+    - alt
+    - title
+
+# Candidate containers that look like promotional banners / heroes / carousels.
+banner_selectors:
+  default:
+    - "[class*='hero' i]"
+    - "[class*='banner' i]"
+    - "[class*='promo' i]"
+    - "[class*='swiper-slide' i]"
+    - "[class*='carousel' i]"
+    - "[class*='slick-slide' i]"
+    - "[data-testid*='banner' i]"
+    - "[data-state*='banner' i]"
+    - "section[class*='campaign' i]"
+    - "aside[class*='promo' i]"
+  newegg:
+    - "[class*='swiper-slide' i]"
+    - "[class*='banner' i]"
+    - "[class*='hero' i]"
+    - "[class*='promo' i]"
+    - "[class*='slick-slide' i]"
+    - ".page-content-inner [class*='carousel' i] [class*='slide' i]"
+  mercadolibre:
+    - "[class*='andes-carousel' i] [class*='andes-carousel__snippet' i]"
+    - "[class*='banner' i]"
+    - "[class*='hero' i]"
+    - "[class*='promo' i]"
+    - "[class*='swiper-slide' i]"
+
+# Never treat these regions as homepage banners.
+exclude_selectors:
+  - "nav"
+  - "header nav"
+  - "footer"
+  - "[role='navigation']"
+  - "[class*='item-cell' i]"
+  - "[class*='product-card' i]"
+  - "[class*='goods-list' i]"
+  - "[class*='item-container' i]"
+  - "[class*='search-result' i]"
+  - "[class*='ui-search-result' i]"
+  - "table"
+  - "[class*='spec' i]"
+
+# Text patterns that suggest a promotional/marketing surface (supporting signal).
+promo_text_signals:
+  - save
+  - off
+  - deal
+  - promo
+  - discount
+  - limited
+  - exclusive
+  - shop
+  - discover
+  - launch
+  - new
+  - offer
+  - desconto
+  - oferta
+
+discount_patterns:
+  - '(?i)save\s*\$?\s*\d+'
+  - '(?i)\d+\s*%\s*off'
+  - '(?i)up\s+to\s+\d+\s*%'
+  - '(?i)\$\s*\d+\s*off'
+  - '(?i)desconto\s+de\s+\d+'
+  - '(?i)até\s+\d+\s*%'
+
+badge_patterns:
+  - '(?i)limited\s+time'
+  - '(?i)hot\s+deal'
+  - '(?i)exclusive'
+  - '(?i)special\s+offer'
+  - '(?i)best\s+seller'
+  - '(?i)only\s+today'
+  - '(?i)oferta'

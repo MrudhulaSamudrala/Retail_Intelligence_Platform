@@ -44,7 +44,8 @@ Notebook = 85% and Desktop = 15% are explicit. The brief does **not** specify ho
 
 ---
 
-## Related resolved-from-brief items (not clarifications)
+## Related resolved-from-brief / documented defaults
 
 - Notebook / Desktop segment weights **0.85 / 0.15** — explicit in the brief; implemented as-is.
 - Workstation, Tablet, CPU, GPU — **excluded** from the 85/15 overall weighting unless the project owner explicitly requires inclusion (`config/product_types.yaml` → `included_in_compliance_weighting`).
+- Banner Share denominator — tracked brands only (Intel/AMD/Qualcomm/Apple). `UNKNOWN`/`AMBIGUOUS` banners are stored but excluded from the denominator (`config/banners.yaml` → `include_unknown_in_banner_share: false`). Homepage banners are not products and are not mixed into Share of Shelf.

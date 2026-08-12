@@ -22,6 +22,7 @@ REQUIRED_CONFIGS = [
     "keywords.yaml",
     "badges.yaml",
     "compliance.yaml",
+    "banners.yaml",
 ]
 
 REQUIRED_DOCS = [
