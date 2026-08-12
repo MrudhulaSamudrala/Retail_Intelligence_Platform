@@ -28,6 +28,14 @@ from analytics.pricing import (
     median_price_by_brand,
     price_change_over_time,
 )
+from analytics.share_of_shelf import (
+    SosScope,
+    SosSnapshot,
+    share_of_shelf,
+    share_of_shelf_by_brand,
+    share_of_shelf_by_oem,
+    share_of_shelf_trends,
+)
 
 __all__ = [
     # Compliance
@@ -56,4 +64,11 @@ __all__ = [
     "list_snapshot_pricing_rows",
     "median_price_by_brand",
     "price_change_over_time",
+    # Share of Shelf
+    "SosScope",
+    "SosSnapshot",
+    "share_of_shelf",
+    "share_of_shelf_by_brand",
+    "share_of_shelf_by_oem",
+    "share_of_shelf_trends",
 ]

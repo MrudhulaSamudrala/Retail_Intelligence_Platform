@@ -12,7 +12,7 @@ equal_check_weights
 
 VALIDATION (before scoring)
 
----------------------------
+---
 
 Products (total):                         21
 
@@ -34,7 +34,7 @@ Products excluded from 85/15 overall:     1
 
 Exclusion reasons (product counts):
 
-  - no_audit_records: 1
+- no_audit_records: 1
 
 Audit counts by product_type:
 
@@ -100,16 +100,92 @@ Other segments are NOT included in the 85/15 overall score.
 
 UNKNOWN results are excluded from score denominators (not treated as FAIL).
 
-
-
 **Why overall is n/a:** All 140 audits are `product_type=notebook`. With no Desktop scored data, the brief formula cannot be applied (clarifications C2 — do not renormalize 85/15 onto Notebook alone).
-
-
 
 **Reproduce:**
 
 python -m [analytics.compliance.run](http://analytics.compliance.run)_existing
 
-
-
 Flow: `ObservationRepository.list_audits()` → `AuditScoreRow` → `compute_compliance_score` / `compute_brand_scores` / `compute_retailer_scores` / `compute_country_scores`, using `config/compliance.yaml` (`equal_check_weights`, notebook=0.85, desktop=0.15).
+
+
+
+
+
+
+
+## SHARE OF SHELF (existing database)
+
+==================================
+
+Inclusion rules id: sos_universe_v1
+
+INVENTORY
+
+---------
+
+Products (total / active):     21 / 21
+
+Product snapshots:             25
+
+Eligible universe size:        21
+
+Excluded from universe:        0
+
+  (all active products passed type + gaming-signal rules)
+
+Brand Share of Shelf:
+
+  Intel      15 / 21 = 71.43%
+
+  AMD         5 / 21 = 23.81%
+
+  UNKNOWN     1 / 21 =  4.76%   (sku=PL)
+
+OEM drilldown (same universe; Apple Brand+OEM N/A — no Apple rows):
+
+  MSI      8 = 38.10%
+
+  Asus     4 = 19.05%
+
+  UNKNOWN  3 = 14.29%
+
+  Dell     2 =  9.52%
+
+  HP       2 =  9.52%
+
+  Acer     1 =  4.76%
+
+  Lenovo   1 =  4.76%
+
+Retailer: newegg only → same as overall (21)
+
+Country:  US only     → same as overall (21)
+
+Product type: notebook only → same as overall (21)
+
+OEM-filtered brand SoS:
+
+  Acer   Intel 100% (1)
+
+  Asus   AMD 50% / Intel 50% (4)
+
+  Dell   Intel 100% (2)
+
+  HP     Intel 100% (2)
+
+  Lenovo AMD 100% (1)
+
+  MSI    Intel 87.50% / AMD 12.50% (8)
+
+Historical trends (from product_snapshots):
+
+  2026-08-11  universe=21
+
+    Intel 71.43% | AMD 23.81% | UNKNOWN 4.76%
+
+
+
+### Reproduce : 
+
+python -m analytics.share_of_[shelf.run](http://shelf.run)_existing

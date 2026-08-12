@@ -155,14 +155,23 @@ SoS(brand) =
   / total eligible deduplicated tracked gaming listings
 ```
 
-**Inclusion rules:**
+Implemented in `analytics/share_of_shelf/`. Inclusion rules id: `sos_universe_v1`.
 
-- In-scope product types only (notebook, desktop, workstation, tablet, cpu, gpu)
-- Gaming-eligible via configured title/category signals (`config/product_types.yaml`)
-- Accessories and irrelevant products excluded
-- Deduplicate by retailer SKU within retailer/country scope
-- Preserve retailer / country / product-type scope in reporting slices
-- **Out-of-stock listings remain included** (SoS measures listing visibility); availability tracked separately
+**Inclusion rules (consistent product universe):**
+
+| Rule | Behavior |
+|---|---|
+| Product types | Only `notebook`, `desktop`, `workstation`, `tablet`, `cpu`, `gpu` |
+| Accessories | Excluded via `excluded_categories` / ineligible or `UNKNOWN` type — **never** enter the denominator |
+| Gaming eligibility | Title or category must match `share_of_shelf.gaming_signals` |
+| Dedup | One row per `(retailer_code, country_code, retailer_sku)` |
+| Availability | Out-of-stock **included** (listing visibility); availability tracked separately |
+| Brand attribution | Uses `brand` only — each product counted once |
+| Apple Brand+OEM | `brand=Apple` and `oem=Apple` still counts **once** toward Brand=Apple (OEM is not added into the brand numerator) |
+
+**Supported slices:** retailer, country, product type, OEM filter / OEM drilldown, `as_of` datetime, and historical daily trends (`share_of_shelf_trends`).
+
+**Config:** `config/product_types.yaml` → `share_of_shelf`, `excluded_categories`
 
 ## Share of Voice (SoV)
 

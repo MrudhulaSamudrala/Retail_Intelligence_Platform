@@ -114,7 +114,7 @@ Planned modules under `analytics/`:
 
 - Overall Brand Compliance Score (`analytics/compliance/`: Notebook 85% + Desktop 15%; configurable S1–P5 combination — see `docs/clarifications.md`)
 - Pricing / promotion analytics (`analytics/pricing/`: avg/median by brand, discounts, time series, retailer/country/type comparisons)
-- Share of Shelf (gaming-eligible deduplicated listings)
+- Share of Shelf (`analytics/share_of_shelf/`: gaming-eligible universe; brand/OEM; retailer/country/type; historical trends)
 - Share of Voice (configurable keyword sets)
 - Historical price / promo / compliance trends
 - Actionable insight generation

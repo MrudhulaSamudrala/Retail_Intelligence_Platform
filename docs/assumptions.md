@@ -60,17 +60,20 @@ SoS(brand) = gaming-eligible deduplicated tracked listings for brand
            / all gaming-eligible deduplicated tracked listings
 ```
 
-Within a retailer/country (and optional product-type slice):
+Within a retailer/country (and optional product-type / OEM / as-of slice):
 
 - Include notebook, desktop, workstation, tablet, cpu, gpu
-- Exclude accessories and irrelevant products
+- Exclude accessories and irrelevant products (never mix into the denominator)
 - Gaming eligibility via configurable title/category signals
-- Deduplicate by `retailer_sku`
+- Deduplicate by `(retailer_code, country_code, retailer_sku)`
 - Include out-of-stock listings (visibility metric); track availability separately
+- Attribute brand SoS via the `brand` field only — do **not** double-count Apple when `brand=Apple` and `oem=Apple`
+- OEM drilldown is a separate aggregation over the same universe
 
 **Rationale:** SoS measures shelf/listing presence, not solely sellable inventory.
 
-**Config:** `config/product_types.yaml` → `share_of_shelf`
+**Config:** `config/product_types.yaml` → `share_of_shelf`  
+**Code:** `analytics/share_of_shelf/` (rules id `sos_universe_v1`)
 
 ---
 

@@ -102,7 +102,8 @@ BridgeAI/
 │   └── audit/
 ├── analytics/
 │   ├── compliance/
-│   └── pricing/
+│   ├── pricing/
+│   └── share_of_shelf/
 ├── database/
 │   ├── models.py
 │   ├── connection.py
@@ -240,7 +241,8 @@ alembic upgrade head --sql
 - [ ] Audit evaluation engine (S1–P5)
 - [x] Overall Brand Compliance Score (`analytics/compliance/`; Notebook 85% + Desktop 15%)
 - [x] Pricing / promotion analytics (`analytics/pricing/`)
-- [ ] Analytics (SoS, SoV, trends, insights)
+- [x] Share of Shelf analytics (`analytics/share_of_shelf/`)
+- [ ] Analytics (SoV, trends, insights)
 - [ ] Excel/CSV report generation
 - [ ] Streamlit dashboard
 - [ ] Automated scheduling on Render

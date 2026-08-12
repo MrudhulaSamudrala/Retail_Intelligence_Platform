@@ -62,6 +62,9 @@ excluded_categories:
 unknown_code: UNKNOWN
 
 # Gaming scope filter used for Share of Shelf (implementation assumption).
+# Universe rules are enforced in analytics/share_of_shelf/universe.py (sos_universe_v1).
+# Accessories in excluded_categories never enter the SoS denominator.
+# Brand SoS uses the brand field only (Apple brand+OEM counts once).
 share_of_shelf:
   scope: gaming
   include_out_of_stock: true
