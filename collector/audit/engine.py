@@ -15,6 +15,7 @@ from collector.audit.models import (
     ListingEvidence,
     ProductEvidence,
 )
+from collector.evidence import COMPLETE
 from collector.normalize import NormalizedProduct
 from database.repositories import ObservationRepository
 
@@ -68,10 +69,19 @@ def build_product_evidence_from_normalized(
     pdp_surface = surfaces.get("pdp") if isinstance(surfaces, dict) else None
     is_ml = product.retailer_code == "mercadolibre"
     if listing_only:
-        specs_available = False
-        access_reason = "PDP_BLOCKED"
-        if isinstance(pdp_surface, dict) and pdp_surface.get("reason"):
-            access_reason = str(pdp_surface.get("reason"))
+        api_specs = (
+            isinstance(specs_surface, dict)
+            and specs_surface.get("status") == COMPLETE
+            and str(specs_surface.get("source") or "") == "api"
+        )
+        if api_specs:
+            specs_available = True
+            access_reason = "SPECS_AVAILABLE"
+        else:
+            specs_available = False
+            access_reason = "PDP_BLOCKED"
+            if isinstance(pdp_surface, dict) and pdp_surface.get("reason"):
+                access_reason = str(pdp_surface.get("reason"))
     elif is_ml and isinstance(raw_specs, dict):
         specs_available = bool(raw.get("specs_table_present")) or (
             isinstance(specs_surface, dict) and specs_surface.get("status") == "COMPLETE"

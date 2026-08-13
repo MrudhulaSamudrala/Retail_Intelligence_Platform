@@ -319,6 +319,27 @@ class MercadoLibreCollector(RetailerCollector):
         listing_raw.setdefault("promo_text", candidate.promo_text)
         listing_raw.setdefault("sku", candidate.retailer_sku)
         listing_raw.setdefault("href", candidate.source_url)
+
+        def _finish(prod: NormalizedProduct) -> NormalizedProduct:
+            try:
+                from collector.retailers.mercadolibre.api.enrich import enrich_product
+
+                return enrich_product(prod)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "mercadolibre_api_enrich_skipped",
+                    extra={
+                        "event": "mercadolibre_api_enrich_skipped",
+                        "sku": prod.retailer_sku,
+                        "error": str(exc),
+                    },
+                )
+                payload = dict(prod.raw_payload or {})
+                payload["api_status"] = "API_UNAVAILABLE"
+                payload["api_error"] = str(exc)
+                prod.raw_payload = payload
+                return prod
+
         try:
             await session.goto(
                 page, candidate.source_url, wait_until="domcontentloaded"
@@ -341,7 +362,8 @@ class MercadoLibreCollector(RetailerCollector):
                 )
                 if not self.allow_listing_only:
                     raise RuntimeError(f"Mercado Libre PDP blocked: {blocked}")
-                return build_from_listing(
+                return _finish(
+                    build_from_listing(
                     retailer_code=self.code,
                     country_code=self.country_code,
                     currency=self.currency,
@@ -354,6 +376,7 @@ class MercadoLibreCollector(RetailerCollector):
                     category_raw=candidate.category_raw,
                     detail_page_status=blocked,
                     extra_raw=listing_raw,
+                    )
                 )
 
             try:
@@ -373,7 +396,8 @@ class MercadoLibreCollector(RetailerCollector):
                 )
             except RuntimeError as exc:
                 if self.allow_listing_only and "verification" in str(exc).lower():
-                    return build_from_listing(
+                    return _finish(
+                        build_from_listing(
                         retailer_code=self.code,
                         country_code=self.country_code,
                         currency=self.currency,
@@ -386,6 +410,7 @@ class MercadoLibreCollector(RetailerCollector):
                         category_raw=candidate.category_raw,
                         detail_page_status="account_verification",
                         extra_raw=listing_raw,
+                        )
                     )
                 raise
 
@@ -412,7 +437,7 @@ class MercadoLibreCollector(RetailerCollector):
                 page, label=f"ml_product_{product.retailer_sku}"
             )
             await asyncio.sleep(0.5)
-            return product
+            return _finish(product)
         finally:
             await page.close()
 

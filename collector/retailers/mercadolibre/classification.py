@@ -20,11 +20,16 @@ from collector.normalize import UNKNOWN, _is_discovery_slug, _match_type_in_blob
 
 VALID = "VALID"
 EXCLUDED = "EXCLUDED"
+OTHER_TYPE = "other"
+REASON_UNSUPPORTED_TYPE = "UNSUPPORTED_PRODUCT_TYPE"
+REASON_INSUFFICIENT_TYPE = "INSUFFICIENT_PRODUCT_TYPE_EVIDENCE"
 # Re-export UNKNOWN for callers
 __all__ = [
     "VALID",
     "UNKNOWN",
     "EXCLUDED",
+    "OTHER_TYPE",
+    "REASON_UNSUPPORTED_TYPE",
     "ClassificationResult",
     "classify_mercadolibre_product",
     "is_collection_eligible",
@@ -83,6 +88,7 @@ class ClassificationResult:
     hard_negative: bool = False
     reasons: list[str] = field(default_factory=list)
     evidence: dict[str, Any] = field(default_factory=dict)
+    exclusion_reason: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -186,12 +192,13 @@ def classify_mercadolibre_product(
         reasons.append(f"hard_negative:{','.join(neg_hits)}")
         return ClassificationResult(
             status=EXCLUDED,
-            product_type=UNKNOWN,
+            product_type=OTHER_TYPE,
             confidence=0.95,
             gaming=False,
             hard_negative=True,
             reasons=reasons,
             evidence=evidence,
+            exclusion_reason=REASON_UNSUPPORTED_TYPE,
         )
 
     # Stage 2 — positive relevance
@@ -233,6 +240,7 @@ def classify_mercadolibre_product(
             hard_negative=False,
             reasons=reasons,
             evidence=evidence,
+            exclusion_reason=REASON_INSUFFICIENT_TYPE,
         )
 
     reasons.append("insufficient_positive_evidence")
@@ -244,6 +252,7 @@ def classify_mercadolibre_product(
         hard_negative=False,
         reasons=reasons,
         evidence=evidence,
+        exclusion_reason=REASON_INSUFFICIENT_TYPE,
     )
 
 

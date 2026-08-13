@@ -16,6 +16,7 @@ METHOD_EMBEDDED_STATE = "embedded_state"
 METHOD_NETWORK_JSON = "network_json"
 METHOD_LISTING_CARD = "listing_card"
 METHOD_TITLE_REGEX = "title_regex"
+METHOD_API = "official_api"
 
 # Sources
 SOURCE_LISTING_CARD = "listing_card"
@@ -25,6 +26,7 @@ SOURCE_EMBEDDED_JSON = "embedded_json"
 SOURCE_NETWORK = "network_response"
 SOURCE_ARIA = "aria"
 SOURCE_TITLE_HEURISTIC = "title_heuristic"
+SOURCE_API = "api"
 
 LAYER_RANK = {
     METHOD_DOM_TEXT: 10,
@@ -34,6 +36,7 @@ LAYER_RANK = {
     METHOD_JSON_LD: 30,
     METHOD_EMBEDDED_STATE: 40,
     METHOD_NETWORK_JSON: 50,
+    METHOD_API: 25,
     METHOD_LISTING_CARD: 60,
     METHOD_TITLE_REGEX: 70,
 }
@@ -46,6 +49,7 @@ METHOD_CONFIDENCE = {
     METHOD_JSON_LD: 0.88,
     METHOD_EMBEDDED_STATE: 0.86,
     METHOD_NETWORK_JSON: 0.82,
+    METHOD_API: 0.9,
     METHOD_LISTING_CARD: 0.72,
     METHOD_TITLE_REGEX: 0.55,
 }
@@ -100,6 +104,7 @@ class ProvenanceStore:
 
     fields: dict[str, FieldObservation] = field(default_factory=dict)
     layers_attempted: list[str] = field(default_factory=list)
+    conflicts: list[dict[str, Any]] = field(default_factory=list)
 
     def mark_layer(self, name: str) -> None:
         if name not in self.layers_attempted:
@@ -124,10 +129,36 @@ class ProvenanceStore:
         return obs.value if obs else None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "layers_attempted": list(self.layers_attempted),
             "fields": {k: v.to_dict() for k, v in self.fields.items()},
         }
+        if self.conflicts:
+            payload["conflicts"] = list(self.conflicts)
+        return payload
+
+    @classmethod
+    def from_dict(cls, data: Optional[dict[str, Any]]) -> "ProvenanceStore":
+        store = cls()
+        if not isinstance(data, dict):
+            return store
+        store.layers_attempted = [str(x) for x in (data.get("layers_attempted") or [])]
+        store.conflicts = list(data.get("conflicts") or [])
+        raw_fields = data.get("fields") or {}
+        if isinstance(raw_fields, dict):
+            for key, val in raw_fields.items():
+                if not isinstance(val, dict) or val.get("value") in (None, "", [], {}):
+                    continue
+                store.fields[str(key)] = FieldObservation(
+                    value=val.get("value"),
+                    source=str(val.get("source") or SOURCE_LISTING_CARD),
+                    extraction_method=str(val.get("extraction_method") or METHOD_LISTING_CARD),
+                    timestamp=str(val.get("timestamp") or utc_now_iso()),
+                    confidence=val.get("confidence"),
+                    raw=val.get("raw"),
+                    currency=val.get("currency"),
+                )
+        return store
 
     def unknown_fields(self, required: list[str]) -> dict[str, str]:
         """Fields still missing after all layers, with why."""

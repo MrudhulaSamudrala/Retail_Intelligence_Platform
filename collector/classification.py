@@ -14,6 +14,8 @@ from typing import Any, Mapping, Optional, Sequence
 from collector.config_loader import load_oems
 
 UNKNOWN = "UNKNOWN"
+OTHER = "OTHER"
+TRACKED_BRANDS = frozenset({"Intel", "AMD", "Qualcomm", "Apple"})
 
 logger = logging.getLogger("collector.classification")
 
@@ -55,6 +57,22 @@ _APPLE_CONTEXT = re.compile(
     re.I,
 )
 _APPLE_M_BARE = re.compile(r"\bm[1-4]\b", re.I)
+
+# Identified chip/SoC vendors that are not tracked analytical brands → OTHER.
+_BRAND_OTHER_SOC: list[re.Pattern[str]] = [
+    re.compile(r"\bmediatek\b", re.I),
+    re.compile(r"\bkompanio\b", re.I),
+    re.compile(r"\bdimensity\b", re.I),
+    re.compile(r"\bhelio\s*[gp]?\d", re.I),
+    re.compile(r"\bexynos\b", re.I),
+    re.compile(r"\bunisoc\b", re.I),
+    re.compile(r"\bspreadtrum\b", re.I),
+    re.compile(r"\bkirin\b", re.I),
+    re.compile(r"\bhisilicon\b", re.I),
+    re.compile(r"\bgoogle\s+tensor\b", re.I),
+    re.compile(r"\brockchip\b", re.I),
+]
+_GPU_OTHER_VENDOR = re.compile(r"\b(nvidia|geforce)\b", re.I)
 
 
 @dataclass(frozen=True)
@@ -127,6 +145,12 @@ def _resolve_unique(
     return unique[0], f"matched_in_{field_label}"
 
 
+def _other_soc_in_text(text: str) -> bool:
+    if not text:
+        return False
+    return any(pattern.search(text) for pattern in _BRAND_OTHER_SOC)
+
+
 def classify_brand(
     *,
     title: Optional[str] = None,
@@ -134,8 +158,14 @@ def classify_brand(
     manufacturer: Optional[str] = None,
     specifications: Optional[Any] = None,
     description: Optional[str] = None,
+    product_type: Optional[str] = None,
 ) -> tuple[str, str]:
-    """Classify Brand independently. Returns ``(brand, reason)``."""
+    """Classify Brand independently. Returns ``(brand, reason)``.
+
+    Tracked values: Intel, AMD, Qualcomm, Apple.
+    OTHER: a non-tracked chip/SoC was reliably identified.
+    UNKNOWN: insufficient or conflicting evidence (never invent a tracked brand).
+    """
     # Ordered evidence. Processor is highest trust; description is strong-patterns only.
     stages: list[tuple[str, str, Sequence[tuple[str, re.Pattern[str]]], bool]] = [
         (
@@ -175,6 +205,20 @@ def classify_brand(
             return UNKNOWN, reason
         if value and reason:
             return value, reason
+
+    other_stages: list[tuple[str, str]] = [
+        ("processor", _normalize_space(processor)),
+        ("title", _normalize_space(title)),
+        ("manufacturer", _normalize_space(manufacturer)),
+        ("specifications", _normalize_space(_specs_to_text(specifications))),
+    ]
+    for label, text in other_stages:
+        if not text:
+            continue
+        if _other_soc_in_text(text):
+            return OTHER, f"matched_other_soc_in_{label}"
+        if (product_type or "").lower() == "gpu" and _GPU_OTHER_VENDOR.search(text):
+            return OTHER, f"matched_other_gpu_vendor_in_{label}"
 
     reason = "insufficient_brand_evidence"
     logger.info("brand_unknown", extra={"event": "brand_unknown", "reason": reason})
@@ -268,6 +312,7 @@ def classify_product(
         manufacturer=manufacturer,
         specifications=specifications,
         description=description,
+        product_type=product_type,
     )
     oem, oem_reason = classify_oem(
         title=title,
