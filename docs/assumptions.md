@@ -306,6 +306,25 @@ timezone `UTC`. Documented in `docs/deployment.md`.
 
 ---
 
+## A20 — Mercado Libre discovery / PDP / search under CDP verification
+
+**Ambiguity:** How to collect Mercado Libre products when `lista.mercadolivre.com.br`
+and product detail pages redirect to account-verification in automated CDP sessions.
+
+**Assumption:** Product discovery uses ofertas category/query pages
+(`config/mercadolibre_discovery.yaml`). PDP is attempted; when verification-gated,
+listing-card fields (title, price, MLB id) are persisted with
+`raw_payload.detail_page_status`, and audits/badges fall back to title/spec evidence
+(UNKNOWN when insufficient — never invented FAIL). Search prefers lista URLs, then
+falls back to `ofertas?q=` and marks status PARTIAL when organic SERP is unavailable.
+
+**Rationale:** Live CDP probes showed homepage/ofertas accessible and lista/PDP gated;
+poly-card selectors are the current DOM.
+
+**Config:** `config/mercadolibre_discovery.yaml`; adapter `collector.retailers.mercadolibre`
+
+---
+
 ## A22 — Local PostgreSQL 18 (Windows native), not Docker
 
 **Ambiguity:** Earlier exploration briefly attempted Docker PostgreSQL; the assessment target is a Windows-native PostgreSQL 18 instance.
@@ -356,4 +375,28 @@ Results are append-only rows in `badges` with `badge_code`, raw `badge_text`, `i
 
 **Config:** `config/badges.yaml` → `platform_families`, `detection`
 **Code:** `collector/parsers/badges.py`
+
+---
+
+## A26 — Cross-retailer canonical identity + product visibility score
+
+**Ambiguity:** Brief does not define how the same real-world product is linked across retailers, or a formula for individual product visibility (distinct from brand Share of Voice).
+
+**Assumption:**
+- Keep retailer-scoped `products` rows authoritative; add analytics-only `canonical_products` + `product_crosswalk` (statuses `MATCHED` / `POSSIBLE_MATCH` / `UNMATCHED`).
+- Matching prefers manufacturer model / MPN, then OEM + specs; title similarity alone never produces `MATCHED`. Only `MATCHED` pairs enter definitive cross-retailer same-product analytics.
+- Product visibility score (configurable in `config/product_identity.yaml`):
+
+```text
+score = w_appearances * appearances
+      + w_top3 * top3 + w_top5 * top5 + w_top10 * top10 + w_top20 * top20
+      + w_inv_rank * sum(1/position)
+```
+
+Default weights: appearances=1, top3=5, top5=3, top10=2, top20=1, inverse_rank=1. Uses latest search batch per keyword (same dedupe as SoV) and organic-only by default.
+
+**Rationale:** Answers retailer-specific vs cross-retailer visibility questions without merging or discarding retailer product records.
+
+**Config:** `config/product_identity.yaml`
+**Code:** `analytics/product_identity/`, `analytics/product_visibility/`
 

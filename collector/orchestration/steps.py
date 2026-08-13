@@ -119,17 +119,70 @@ async def run_newegg_products(
 async def run_mercadolibre_products(
     session: Session, *, limit: int, parent_run_id: int
 ) -> StepResult:
+    from collector.pipeline import CollectionPipeline
+    from collector.retailers.mercadolibre import build_collector
+    from database.models import PriceHistory, Product, ProductSnapshot
+
     started = datetime.now(timezone.utc)
-    # Adapter not implemented yet — fail closed with a clear message (do not invent data).
+    before = session.scalar(select(func.count()).select_from(Product)) or 0
+    before_snaps = session.scalar(select(func.count()).select_from(ProductSnapshot)) or 0
+    before_prices = session.scalar(select(func.count()).select_from(PriceHistory)) or 0
+    before_ml = (
+        session.scalar(
+            select(func.count()).select_from(Product).where(
+                Product.retailer_code == "mercadolibre"
+            )
+        )
+        or 0
+    )
+
+    collector = build_collector()
+    pipeline = CollectionPipeline(session, collector)
+    outcome = await pipeline.run(limit=limit)
+
+    after = session.scalar(select(func.count()).select_from(Product)) or 0
+    after_snaps = session.scalar(select(func.count()).select_from(ProductSnapshot)) or 0
+    after_prices = session.scalar(select(func.count()).select_from(PriceHistory)) or 0
+    after_ml = (
+        session.scalar(
+            select(func.count()).select_from(Product).where(
+                Product.retailer_code == "mercadolibre"
+            )
+        )
+        or 0
+    )
+
+    new_products = max(int(after_ml) - int(before_ml), 0)
+    reobserved = max(len(outcome.success) - new_products, 0)
+    status = STATUS_SUCCESS
+    if outcome.status == "failed":
+        status = STATUS_FAILED
+    elif outcome.status == "partial" or outcome.failed:
+        status = STATUS_PARTIAL
+
     return StepResult(
         component="mercadolibre",
-        status=STATUS_FAILED,
-        records_processed=0,
-        error_message=(
-            "Mercado Libre product collector adapter is not implemented yet "
-            "(collector.retailers.mercadolibre)."
-        ),
-        details={"parent_run_id": parent_run_id, "limit": limit},
+        status=status,
+        records_processed=len(outcome.success),
+        error_message="; ".join(
+            str(e.get("error") if isinstance(e, dict) else e)
+            for e in (outcome.failed or [])[:5]
+        )
+        or None,
+        details={
+            "parent_run_id": parent_run_id,
+            "child_collection_run_id": outcome.collection_run_id,
+            "products_before": int(before),
+            "products_after": int(after),
+            "mercadolibre_products_before": int(before_ml),
+            "mercadolibre_products_after": int(after_ml),
+            "new_products": new_products,
+            "existing_reobserved": reobserved,
+            "snapshots_created": int(after_snaps) - int(before_snaps),
+            "price_rows_created": int(after_prices) - int(before_prices),
+            "skipped_duplicates": len(outcome.skipped_duplicates),
+            "bot_blocked": outcome.bot_blocked,
+        },
         started_at=started,
         completed_at=datetime.now(timezone.utc),
     )
@@ -146,24 +199,39 @@ async def run_audits_step(
             started_at=started,
             completed_at=datetime.now(timezone.utc),
         )
-    from collector.audit.run_newegg_existing import run_audit
+    from collector.audit.run_newegg_existing import run_audit as run_audit_newegg
+    from collector.audit.run_mercadolibre_existing import run_audit as run_audit_ml
 
-    # Existing runner manages its own engine/session; invoke and report.
-    summary = await run_audit()
-    errors = summary.get("errors") or []
-    status = STATUS_SUCCESS if not errors else STATUS_PARTIAL
-    if summary.get("products_audited", 0) == 0 and errors:
+    summaries = []
+    errors: list[str] = []
+    rows = 0
+    audited = 0
+    for label, runner in (
+        ("newegg", run_audit_newegg),
+        ("mercadolibre", run_audit_ml),
+    ):
+        try:
+            summary = await runner()
+            summaries.append({label: summary})
+            rows += int(summary.get("rows_inserted") or 0)
+            audited += int(summary.get("products_audited") or 0)
+            for err in summary.get("errors") or []:
+                errors.append(f"{label}:{err}")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{label}:{type(exc).__name__}: {exc}")
+
+    if audited == 0 and errors:
         status = STATUS_FAILED
+    elif errors:
+        status = STATUS_PARTIAL
+    else:
+        status = STATUS_SUCCESS
     return StepResult(
         component="audits",
         status=status,
-        records_processed=int(summary.get("rows_inserted") or 0),
-        error_message="; ".join(str(e) for e in errors[:5]) or None,
-        details={"parent_run_id": parent_run_id, **{k: summary.get(k) for k in (
-            "collection_run_id",
-            "products_audited",
-            "rows_inserted",
-        )}},
+        records_processed=rows,
+        error_message="; ".join(errors[:8]) or None,
+        details={"parent_run_id": parent_run_id, "summaries": summaries},
         started_at=started,
         completed_at=datetime.now(timezone.utc),
     )
@@ -180,13 +248,40 @@ async def run_badges_step(
             started_at=started,
             completed_at=datetime.now(timezone.utc),
         )
-    from collector.badges.run_existing import run_badge_collection
+    from collector.badges.run_existing import run_badge_collection as run_badges_newegg
+    from collector.badges.run_mercadolibre_existing import (
+        run_badge_collection as run_badges_ml,
+    )
 
-    summary = await run_badge_collection()
-    errors = summary.get("errors") or []
-    failed = int(summary.get("failed") or 0)
-    processed = int(summary.get("processed") or 0)
-    rows = int(summary.get("badge_rows_inserted") or 0)
+    errors: list[str] = []
+    rows = 0
+    processed = 0
+    failed = 0
+    details: dict[str, Any] = {"parent_run_id": parent_run_id}
+    for label, runner in (
+        ("newegg", run_badges_newegg),
+        ("mercadolibre", run_badges_ml),
+    ):
+        try:
+            summary = await runner()
+            details[label] = {
+                k: summary.get(k)
+                for k in (
+                    "collection_run_id",
+                    "processed",
+                    "failed",
+                    "badge_rows_inserted",
+                )
+            }
+            rows += int(summary.get("badge_rows_inserted") or 0)
+            processed += int(summary.get("processed") or 0)
+            failed += int(summary.get("failed") or 0)
+            for err in summary.get("errors") or []:
+                errors.append(f"{label}:{err}")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{label}:{type(exc).__name__}: {exc}")
+            failed += 1
+
     if processed == 0 and (errors or failed):
         status = STATUS_FAILED
     elif failed or errors:
@@ -197,13 +292,8 @@ async def run_badges_step(
         component="badges",
         status=status,
         records_processed=rows,
-        error_message="; ".join(str(e) for e in errors[:5]) or None,
-        details={
-            "parent_run_id": parent_run_id,
-            "processed": processed,
-            "failed": failed,
-            "collection_run_id": summary.get("collection_run_id"),
-        },
+        error_message="; ".join(errors[:8]) or None,
+        details=details,
         started_at=started,
         completed_at=datetime.now(timezone.utc),
     )

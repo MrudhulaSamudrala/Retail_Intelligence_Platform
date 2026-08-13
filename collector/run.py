@@ -88,14 +88,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 async def _legacy_product_run(retailer: str, limit: int) -> int:
     from collector.pipeline import CollectionPipeline
-    from collector.retailers.newegg import build_collector
 
-    if retailer == "mercadolibre":
-        raise NotImplementedError(
-            "Mercado Libre collector is not implemented yet. "
-            "Common pipeline is ready for a future adapter."
-        )
-    if retailer != "newegg":
+    if retailer == "newegg":
+        from collector.retailers.newegg import build_collector
+    elif retailer == "mercadolibre":
+        from collector.retailers.mercadolibre import build_collector
+    else:
         raise SystemExit(f"Unsupported retailer: {retailer}")
 
     logger = setup_logging()

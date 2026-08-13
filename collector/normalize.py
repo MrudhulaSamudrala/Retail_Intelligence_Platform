@@ -90,10 +90,37 @@ def detect_product_type(
 
 
 def parse_price(text: Optional[str]) -> Optional[Decimal]:
+    """Parse retailer price text into Decimal.
+
+    Supports US-style ``1,234.56`` / ``$1234.56`` and Brazilian
+    ``R$ 3.999,90`` / ``3999,90`` forms. Does not invent values.
+    """
     if not text:
         return None
-    cleaned = text.replace(",", "").replace("$", "").strip()
-    match = re.search(r"(\d+(?:\.\d+)?)", cleaned)
+    cleaned = (
+        text.replace("R$", "")
+        .replace("r$", "")
+        .replace("$", "")
+        .replace("\xa0", " ")
+        .strip()
+    )
+    cleaned = re.sub(r"[^\d.,]", "", cleaned)
+    if not cleaned:
+        return None
+
+    # Brazilian: thousands '.', decimal ','
+    if re.search(r"\d{1,3}(\.\d{3})+(,\d+)?$", cleaned) or (
+        "," in cleaned and "." in cleaned and cleaned.rfind(",") > cleaned.rfind(".")
+    ):
+        normalized = cleaned.replace(".", "").replace(",", ".")
+    # Decimal comma only (e.g. 3999,90)
+    elif "," in cleaned and "." not in cleaned:
+        normalized = cleaned.replace(",", ".")
+    else:
+        # US / plain: strip thousands commas
+        normalized = cleaned.replace(",", "")
+
+    match = re.search(r"(\d+(?:\.\d+)?)", normalized)
     if not match:
         return None
     try:
@@ -106,11 +133,33 @@ def normalize_availability(text: Optional[str]) -> str:
     if not text:
         return "unknown"
     value = text.lower()
-    if any(x in value for x in ("out of stock", "sold out", "unavailable")):
+    if any(
+        x in value
+        for x in (
+            "out of stock",
+            "sold out",
+            "unavailable",
+            "esgotado",
+            "indisponível",
+            "indisponivel",
+        )
+    ):
         return "out_of_stock"
-    if any(x in value for x in ("in stock", "add to cart", "ship", "available")):
+    if any(
+        x in value
+        for x in (
+            "in stock",
+            "add to cart",
+            "ship",
+            "available",
+            "estoque",
+            "disponível",
+            "disponivel",
+            "comprar",
+        )
+    ):
         return "in_stock"
-    if "limited" in value:
+    if "limited" in value or "últimas" in value or "ultimas" in value:
         return "limited"
     return "unknown"
 

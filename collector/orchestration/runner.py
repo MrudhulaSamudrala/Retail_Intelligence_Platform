@@ -478,6 +478,20 @@ class ProductionRunner:
                     ),
                 )
                 steps.append(ml)
+                if ml.status != STATUS_SKIPPED:
+                    d = ml.details or {}
+                    product_details["price_rows_created"] += int(
+                        d.get("price_rows_created") or 0
+                    )
+                    product_details["snapshots_created"] += int(
+                        d.get("snapshots_created") or 0
+                    )
+                    product_details["new_products"] += int(d.get("new_products") or 0)
+                    product_details["existing_reobserved"] += int(
+                        d.get("existing_reobserved") or 0
+                    )
+                    if ml.status == STATUS_FAILED:
+                        product_details["mercadolibre_failed"] = True
 
                 # 2) Product-level observations (same product master population)
                 audits = await self._execute_component(

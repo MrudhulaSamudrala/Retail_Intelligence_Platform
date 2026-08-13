@@ -277,6 +277,14 @@ Daily SoV / appearances / top-N / average rank by retailer, country, keyword, br
 **Config:** `config/keywords.yaml`  
 **Commands:** `python -m collector.search.run` · `python -m analytics.share_of_voice.run_existing`
 
+## Product visibility (per SKU) vs brand SoV
+
+Brand Share of Voice answers “how often does Intel/AMD appear?” Product visibility answers “which retailer SKU ranks highest?” They must not be conflated.
+
+Cross-retailer “same product” uses `canonical_products` + `product_crosswalk` without merging `products` rows. Only `MATCHED` mappings enter definitive combined rankings. Visibility score formula and match rules: `config/product_identity.yaml` / assumption **A26**.
+
+**Commands:** `python -m analytics.product_visibility.run_existing --rebuild-identity`
+
 ## Historical data
 
 - Every collection creates timestamped observations.

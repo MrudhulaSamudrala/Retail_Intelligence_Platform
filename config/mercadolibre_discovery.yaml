@@ -1,0 +1,28 @@
+# Mercado Libre Brazil controlled collection scope.
+# lista.mercadolivre.com.br search pages are often gated behind account-verification
+# in automated CDP sessions. Ofertas category pages currently expose poly-card
+# listings without that wall and are used as the primary discovery surface.
+
+retailer_code: mercadolibre
+country_code: BR
+currency: BRL
+
+discovery:
+  - name: notebook_ofertas
+    product_type_hint: notebook
+    # MLB1652 = Notebooks category on Mercado Libre Brazil
+    url: "https://www.mercadolivre.com.br/ofertas?category=MLB1652"
+  - name: notebook_gamer_ofertas
+    product_type_hint: notebook
+    url: "https://www.mercadolivre.com.br/ofertas?q=notebook%20gamer"
+  - name: desktop_gamer_ofertas
+    product_type_hint: desktop
+    url: "https://www.mercadolivre.com.br/ofertas?q=pc%20gamer"
+
+limits:
+  max_pages_per_query: 1
+  min_title_length: 8
+
+# When product detail pages redirect to account-verification, persist listing-level
+# observations and mark raw_payload.detail_page_status accordingly.
+allow_listing_only_fallback: true

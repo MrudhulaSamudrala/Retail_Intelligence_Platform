@@ -1,5 +1,27 @@
-"""Analytics: compliance, pricing/promotions, Share of Shelf, Share of Voice, trends."""
+"""Analytics: compliance, pricing/promotions, Share of Shelf, Share of Voice, trends.
 
+Also: cross-retailer product identity + product-level visibility (separate from brand SoV).
+"""
+
+from analytics.product_identity import (
+    AvailabilityMatrixRow,
+    RetailerProductCounts,
+    crosswalk_summary,
+    list_common_products,
+    list_retailer_only_products,
+    product_availability_matrix,
+    rebuild_cross_retailer_identity,
+    retailer_product_counts,
+)
+from analytics.product_visibility import (
+    CrossRetailerVisibilityRow,
+    ProductVisibilityRow,
+    VisibilityScope,
+    highest_cross_retailer_visibility,
+    highest_visibility_by_retailer,
+    list_cross_retailer_visibility,
+    list_product_visibility,
+)
 from analytics.share_of_voice import (
     SovScope,
     SovSnapshot,
@@ -51,6 +73,23 @@ from analytics.share_of_shelf import (
 )
 
 __all__ = [
+    # Product identity / cross-retailer
+    "AvailabilityMatrixRow",
+    "RetailerProductCounts",
+    "crosswalk_summary",
+    "list_common_products",
+    "list_retailer_only_products",
+    "product_availability_matrix",
+    "rebuild_cross_retailer_identity",
+    "retailer_product_counts",
+    # Product visibility (not brand SoV)
+    "CrossRetailerVisibilityRow",
+    "ProductVisibilityRow",
+    "VisibilityScope",
+    "highest_cross_retailer_visibility",
+    "highest_visibility_by_retailer",
+    "list_cross_retailer_visibility",
+    "list_product_visibility",
     # Share of Voice
     "SovScope",
     "SovSnapshot",

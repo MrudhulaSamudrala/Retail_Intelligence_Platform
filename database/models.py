@@ -180,6 +180,9 @@ class Product(Base):
     audits: Mapped[list["RetailerAudit"]] = relationship(back_populates="product")
     badges: Mapped[list["Badge"]] = relationship(back_populates="product")
     search_hits: Mapped[list["SearchObservation"]] = relationship(back_populates="product")
+    crosswalk_entry: Mapped[Optional["ProductCrosswalk"]] = relationship(
+        back_populates="product", uselist=False
+    )
 
     __table_args__ = (
         UniqueConstraint(
@@ -193,6 +196,85 @@ class Product(Base):
         Index("ix_products_product_type", "product_type"),
         Index("ix_products_retailer_country", "retailer_code", "country_code"),
         Index("ix_products_last_seen_at", "last_seen_at"),
+    )
+
+
+class CanonicalProduct(Base):
+    """Cross-retailer real-world product identity (analytics layer only).
+
+    Does not replace retailer-scoped ``products`` rows. Links via
+    ``product_crosswalk``.
+    """
+
+    __tablename__ = "canonical_products"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    brand: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    oem: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    model_name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    manufacturer_model: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    normalized_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    product_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    details: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONType, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    crosswalk_entries: Mapped[list["ProductCrosswalk"]] = relationship(
+        back_populates="canonical_product"
+    )
+
+    __table_args__ = (
+        Index("ix_canonical_products_manufacturer_model", "manufacturer_model"),
+        Index("ix_canonical_products_oem_model", "oem", "manufacturer_model"),
+    )
+
+
+class ProductCrosswalk(Base):
+    """Maps a retailer ``products`` row to an optional canonical identity."""
+
+    __tablename__ = "product_crosswalk"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    canonical_product_id: Mapped[int] = mapped_column(
+        ForeignKey("canonical_products.id", ondelete="CASCADE"), nullable=False
+    )
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey("products.id", ondelete="CASCADE"), nullable=False
+    )
+    match_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        doc="MATCHED|POSSIBLE_MATCH|UNMATCHED",
+    )
+    match_method: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    match_confidence: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 4), nullable=True)
+    details: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONType, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    canonical_product: Mapped["CanonicalProduct"] = relationship(
+        back_populates="crosswalk_entries"
+    )
+    product: Mapped["Product"] = relationship(back_populates="crosswalk_entry")
+
+    __table_args__ = (
+        UniqueConstraint("product_id", name="uq_product_crosswalk_product_id"),
+        Index("ix_product_crosswalk_canonical", "canonical_product_id"),
+        Index("ix_product_crosswalk_status", "match_status"),
     )
 
 

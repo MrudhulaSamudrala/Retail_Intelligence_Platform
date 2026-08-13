@@ -92,39 +92,98 @@ async def _has_next_page_mercadolibre(page: Page) -> bool:
 
 
 async def _extract_mercadolibre_listings(page: Page) -> list[dict]:
-    """Extract ML search cards via DOM (title, href, sku-ish id)."""
+    """Extract ML search/ofertas cards via modern poly-card + legacy ui-search DOM."""
     js = """
     () => {
-      const cards = Array.from(document.querySelectorAll(
-        'li.ui-search-layout__item, div.ui-search-result, .ui-search-result__wrapper'
-      ));
+      const cardSels = [
+        'div.poly-card',
+        'li.ui-search-layout__item',
+        'div.ui-search-result',
+        '.ui-search-result__wrapper'
+      ];
+      const titleSels = [
+        'a.poly-component__title',
+        'h2.ui-search-item__title',
+        'a.ui-search-link',
+        'a.ui-search-item__group__element',
+        'a.ui-search-link-title'
+      ];
+      const seenEl = new Set();
+      const cards = [];
+      for (const sel of cardSels) {
+        for (const el of Array.from(document.querySelectorAll(sel))) {
+          if (seenEl.has(el)) continue;
+          seenEl.add(el);
+          cards.push(el);
+        }
+      }
+      if (!cards.length) {
+        for (const sel of titleSels) {
+          for (const a of Array.from(document.querySelectorAll(sel))) {
+            const root = a.closest('div.poly-card, li.ui-search-layout__item, div.ui-search-result') || a.parentElement;
+            if (root && !seenEl.has(root)) {
+              seenEl.add(root);
+              cards.push(root);
+            }
+          }
+        }
+      }
       const out = [];
       const seen = new Set();
       for (const card of cards) {
-        const a = card.querySelector('a.ui-search-link, a.ui-search-item__group__element, a[href*="/p/"], a[href*="MLB"]');
-        if (!a) continue;
-        const href = a.href || '';
+        let a = null;
+        for (const sel of titleSels) {
+          a = card.querySelector(sel);
+          if (a && a.href) break;
+        }
+        if (!a) a = card.querySelector('a[href*=\"/p/\"], a[href*=\"MLB\"]');
+        if (!a || !a.href) continue;
+        const href = a.href;
         if (!href || seen.has(href)) continue;
+        if (/account-verification|click1\\.mercadolivre/i.test(href)) continue;
         seen.add(href);
-        const titleEl = card.querySelector('h2, .ui-search-item__title, a.ui-search-link-title');
-        const title = (titleEl ? titleEl.textContent : a.textContent || '').replace(/\\s+/g, ' ').trim();
+        const title = (a.textContent || '').replace(/\\s+/g, ' ').trim();
         if (!title) continue;
         let sku = null;
-        const m = href.match(/MLB-?(\\d+)/i) || href.match(/\\/p\\/([A-Z0-9]+)/i);
-        if (m) sku = m[0].toUpperCase().replace('MLB-', 'MLB');
-        const sponsored = !!(card.querySelector('[class*="advertising"], [class*="sponsored"], .ui-search-item__ad-label'));
+        const m = href.match(/\\/p\\/(MLB\\d+)/i) || href.match(/wid=(MLB\\d+)/i) || href.match(/MLB-?(\\d+)/i);
+        if (m) {
+          const raw = (m[1] || m[0] || '').toUpperCase().replace('MLB-', 'MLB');
+          sku = raw.startsWith('MLB') ? raw.replace(/^MLB(?=\\d)/, 'MLB') : ('MLB' + raw.replace(/\\D/g, ''));
+          if (!/^MLB\\d+$/i.test(sku)) {
+            const m2 = href.match(/MLB-?(\\d+)/i);
+            if (m2) sku = 'MLB' + m2[1];
+          }
+        }
+        const sponsored = !!(card.querySelector('[class*=\"advertising\"], [class*=\"sponsored\"], .ui-search-item__ad-label, .poly-component__ads-promotions'));
         out.push({
           title,
           href,
           sku,
           sponsored,
-          selector: card.className || 'ui-search-result',
+          selector: (card.className || 'poly-card').toString().slice(0, 80),
         });
       }
       return out;
     }
     """
     return await page.evaluate(js)
+
+
+def _is_ml_verification_page(url: str, title: str, html: str) -> bool:
+    blob = f"{url} {title} {html}".lower()
+    return (
+        "account-verification" in blob
+        or "para continuar, acesse" in blob
+        or "olá! para continuar" in blob
+        or "ola! para continuar" in blob
+    )
+
+
+def build_mercadolibre_fallback_url(keyword: str) -> str:
+    """Ofertas query fallback when lista.* is verification-gated."""
+    q = quote_plus(keyword.strip())
+    return f"https://www.mercadolivre.com.br/ofertas?q={q}"
+
 
 
 def _classify_hit_brand_oem(title: str, features: list[str] | None = None) -> tuple[str, Optional[str]]:
@@ -213,6 +272,44 @@ async def run_keyword_search(
                     )
                 has_next = await _has_next_page_newegg(page, page_number)
             else:
+                # Mercado Libre: lista.* often redirects to account-verification in
+                # automated CDP sessions. Detect and retry via ofertas?q= fallback.
+                used_fallback = False
+                if _is_ml_verification_page(page.url, title, html):
+                    fallback = build_mercadolibre_fallback_url(target.keyword)
+                    logger.warning(
+                        "ml_search_verification_fallback",
+                        extra={
+                            "event": "ml_search_verification_fallback",
+                            "url": page.url,
+                            "fallback": fallback,
+                        },
+                    )
+                    await session.goto(page, fallback, wait_until="domcontentloaded")
+                    await page.wait_for_timeout(2500)
+                    title = await page.title()
+                    html = await page.content()
+                    url = fallback
+                    used_fallback = True
+                    pagination_reliable = False
+                    result.details["ml_search_fallback"] = "ofertas_query"
+                    if page_number == 1:
+                        result.search_url = fallback
+
+                if _is_ml_verification_page(page.url, title, html):
+                    result.error = "mercadolibre_account_verification"
+                    pagination_reliable = False
+                    if page_number == 1 and not hits:
+                        result.collection_status = STATUS_FAILED
+                        result.pages_collected = 1
+                        result.hits = []
+                        return result
+                    break
+
+                for _ in range(2):
+                    await page.mouse.wheel(0, 1800)
+                    await page.wait_for_timeout(600)
+
                 raw_cards = await _extract_mercadolibre_listings(page)
                 for idx, card in enumerate(raw_cards):
                     global_pos = len(hits) + idx + 1
@@ -236,11 +333,16 @@ async def run_keyword_search(
                             oem=oem,
                             is_sponsored=bool(card.get("sponsored")),
                             evidence_text=title_text,
-                            selector=card.get("selector") or "ui-search-result",
+                            selector=card.get("selector") or "poly-card",
                             search_url=url,
+                            details={"fallback": used_fallback} if used_fallback else {},
                         )
                     )
-                has_next = await _has_next_page_mercadolibre(page)
+                has_next = (
+                    False
+                    if used_fallback
+                    else await _has_next_page_mercadolibre(page)
+                )
 
             if not page_hits:
                 if page_number == 1:

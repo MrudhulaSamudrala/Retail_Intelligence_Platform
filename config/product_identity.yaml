@@ -1,0 +1,32 @@
+# Cross-retailer product identity + product visibility scoring.
+# Does NOT merge retailer-scoped products rows.
+
+matching:
+  # Only MATCHED participates in definitive cross-retailer same-product analytics.
+  statuses:
+    matched: MATCHED
+    possible: POSSIBLE_MATCH
+    unmatched: UNMATCHED
+  # Confidence thresholds (inclusive).
+  thresholds:
+    matched_min: 0.80
+    possible_min: 0.50
+  # Title-only similarity never reaches MATCHED.
+  title_similarity_cap: 0.45
+  require_oem_for_matched: true
+
+visibility:
+  # Product visibility score (configurable; not brand Share of Voice).
+  # score = w_appearances * appearances
+  #       + w_top3 * top3 + w_top5 * top5 + w_top10 * top10 + w_top20 * top20
+  #       + w_inv_rank * sum(1/position)
+  weights:
+    appearances: 1.0
+    top3: 5.0
+    top5: 3.0
+    top10: 2.0
+    top20: 1.0
+    inverse_rank: 1.0
+  prefer_organic: true
+  # When scoring, use latest search batch per keyword (same as SoV dedupe).
+  use_latest_batch_only: true

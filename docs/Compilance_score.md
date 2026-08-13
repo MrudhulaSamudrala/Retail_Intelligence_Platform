@@ -364,3 +364,8 @@ python -m analytics.share_of_[voice.run](http://voice.run)_existing
 - UNKNOWN excluded from SoV denominator by default.
 - Independent of Share of Shelf product universe.
 
+
+
+#### Single Prompt to run all the things....:
+
+python -m [collector.run](http://collector.run) --all

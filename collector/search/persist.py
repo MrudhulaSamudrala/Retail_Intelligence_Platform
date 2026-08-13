@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from collector.search.models import SearchRunResult
-from database.repositories import CollectionRunRepository, ObservationRepository
+from database.repositories import CollectionRunRepository, ObservationRepository, ProductRepository
 
 
 def persist_search_run(
@@ -44,10 +44,19 @@ def persist_search_run(
         run_obj = runs.get(collection_run_id)
 
     obs = ObservationRepository(session)
+    products = ProductRepository(session)
     for hit in run.hits:
+        product_id = None
+        sku = (hit.retailer_sku or "").strip()
+        if sku:
+            existing = products.get_by_retailer_sku(
+                hit.retailer_code, hit.country_code, sku
+            )
+            if existing is not None:
+                product_id = existing.id
         obs.add_search(
             collection_run_id=collection_run_id,
-            product_id=None,
+            product_id=product_id,
             observed_at=observed,
             retailer_code=hit.retailer_code,
             country_code=hit.country_code,
