@@ -9,6 +9,8 @@ from collector.evidence import (
     COMPLETE,
     PARTIAL,
     REASON_ACCOUNT_VERIFICATION,
+    REASON_LISTING_AVAILABLE,
+    REASON_PDP_BLOCKED,
     listing_only_evidence,
     product_page_evidence,
 )
@@ -27,7 +29,9 @@ def test_evidence_listing_only_is_partial_with_blocked_pdp() -> None:
     bundle = listing_only_evidence(reason=REASON_ACCOUNT_VERIFICATION)
     assert bundle.overall_status == PARTIAL
     assert bundle.surfaces["pdp"].status == BLOCKED
-    assert bundle.surfaces["pdp"].reason == REASON_ACCOUNT_VERIFICATION
+    assert bundle.surfaces["pdp"].reason == REASON_PDP_BLOCKED
+    assert bundle.surfaces["pdp"].notes == REASON_ACCOUNT_VERIFICATION
+    assert bundle.surfaces["listing"].reason == REASON_LISTING_AVAILABLE
     assert bundle.surfaces["listing"].status == COMPLETE
     assert not bundle.pdp_inspected()
     assert bundle.pdp_blocked()

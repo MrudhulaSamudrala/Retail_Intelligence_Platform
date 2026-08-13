@@ -40,6 +40,18 @@ LISTING_DISCOUNT_SELECTORS = [
     "[class*='discount']",
 ]
 
+LISTING_ATTRIBUTE_SELECTORS = [
+    "ul.poly-attributes_list li",
+    "ul.ui-search-card-attributes li",
+    ".poly-component__attributes",
+]
+
+LISTING_BADGE_SELECTORS = [
+    ".poly-component__badges img",
+    ".poly-component__cbt img",
+    "[class*='poly-component__'] img",
+]
+
 # Product detail page
 PRODUCT_TITLE_SELECTORS = [
     "h1.ui-pdp-title",
@@ -69,6 +81,9 @@ SPEC_ROW_SELECTORS = [
     ".ui-pdp-specs__table tr",
     ".ui-vpp-striped-specs__table tr",
     "tr.andes-table__row",
+    ".ui-pdp-specs__item",
+    ".ui-vpp-striped-specs__row",
+    ".ui-pdp-highlighted-specs-key-value",
 ]
 
 ACCOUNT_VERIFICATION_MARKERS = [

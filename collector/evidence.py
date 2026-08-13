@@ -18,8 +18,15 @@ BLOCKED = "BLOCKED"
 
 VALID_STATUSES = frozenset({COMPLETE, PARTIAL, UNKNOWN, BLOCKED})
 
-# Reason codes (extensible)
-REASON_PDP_BLOCKED = "pdp_blocked"
+# Reason codes (extensible). Uppercase codes are the collector vocabulary;
+# lowercase aliases remain for older rows / tests.
+REASON_PDP_BLOCKED = "PDP_BLOCKED"
+REASON_LISTING_AVAILABLE = "LISTING_AVAILABLE"
+REASON_SPECS_AVAILABLE = "SPECS_AVAILABLE"
+REASON_SPECS_NOT_FOUND = "SPECS_NOT_FOUND"
+REASON_EVIDENCE_AMBIGUOUS = "EVIDENCE_AMBIGUOUS"
+REASON_PAGE_NOT_INSPECTABLE = "PAGE_NOT_INSPECTABLE"
+REASON_PARSER_UNCERTAIN = "PARSER_UNCERTAIN"
 REASON_ACCOUNT_VERIFICATION = "account_verification"
 REASON_CAPTCHA = "captcha"
 REASON_BOT_CHALLENGE = "bot_challenge"
@@ -146,48 +153,61 @@ def derive_overall_status(surfaces: dict[str, SurfaceEvidence]) -> str:
 
 def listing_only_evidence(*, reason: str = REASON_ACCOUNT_VERIFICATION) -> EvidenceBundle:
     """Standard bundle when PDP is blocked and listing card was used."""
+    pdp_reason = reason if reason and reason != REASON_OK else REASON_PDP_BLOCKED
+    if pdp_reason in {REASON_ACCOUNT_VERIFICATION, REASON_CAPTCHA, REASON_BOT_CHALLENGE}:
+        notes = pdp_reason
+        pdp_reason = REASON_PDP_BLOCKED
+    else:
+        notes = reason
     bundle = EvidenceBundle()
     bundle.set_surface(
         SURFACE_LISTING,
         status=COMPLETE,
-        reason=REASON_OK,
+        reason=REASON_LISTING_AVAILABLE,
         source="listing_card",
     )
     bundle.set_surface(
         SURFACE_PDP,
         status=BLOCKED,
-        reason=reason if reason != REASON_OK else REASON_PDP_BLOCKED,
+        reason=pdp_reason,
         source="product_page",
+        notes=str(notes) if notes else None,
     )
     bundle.set_surface(
         SURFACE_SPECS,
         status=UNKNOWN,
-        reason=REASON_NOT_INSPECTED,
+        reason=REASON_PDP_BLOCKED,
         source="product_page",
         notes="title_heuristics_are_not_specs_table_evidence",
     )
     bundle.set_surface(
         SURFACE_BADGE,
         status=UNKNOWN,
-        reason=REASON_NOT_INSPECTED,
+        reason=REASON_PDP_BLOCKED,
         source="product_page",
     )
     bundle.set_surface(
         SURFACE_RICH_MEDIA,
         status=UNKNOWN,
-        reason=REASON_NOT_INSPECTED,
+        reason=REASON_PDP_BLOCKED,
         source="product_page",
     )
     return bundle
 
 
-def product_page_evidence(*, specs_available: bool) -> EvidenceBundle:
+def product_page_evidence(
+    *,
+    specs_available: bool,
+    specs_reason: Optional[str] = None,
+    badges_inspected: bool = True,
+    media_inspected: bool = True,
+) -> EvidenceBundle:
     """Standard bundle when PDP HTML was successfully inspected."""
     bundle = EvidenceBundle()
     bundle.set_surface(
         SURFACE_LISTING,
         status=COMPLETE,
-        reason=REASON_OK,
+        reason=REASON_LISTING_AVAILABLE,
         source="listing_card",
     )
     bundle.set_surface(
@@ -196,25 +216,31 @@ def product_page_evidence(*, specs_available: bool) -> EvidenceBundle:
         reason=REASON_OK,
         source="product_page",
     )
+    if specs_available:
+        spec_status = COMPLETE
+        spec_reason = specs_reason or REASON_SPECS_AVAILABLE
+    else:
+        spec_status = UNKNOWN
+        spec_reason = specs_reason or REASON_SPECS_NOT_FOUND
     bundle.set_surface(
         SURFACE_SPECS,
-        status=COMPLETE if specs_available else UNKNOWN,
-        reason=REASON_OK if specs_available else REASON_SELECTOR_MISSING,
+        status=spec_status,
+        reason=spec_reason,
         source="product_page",
     )
     bundle.set_surface(
         SURFACE_BADGE,
-        status=COMPLETE,
-        reason=REASON_OK,
+        status=COMPLETE if badges_inspected else UNKNOWN,
+        reason=REASON_OK if badges_inspected else REASON_PARSER_UNCERTAIN,
         source="product_page",
-        notes="badges_inspected",
+        notes="badges_inspected" if badges_inspected else "badges_not_inspected",
     )
     bundle.set_surface(
         SURFACE_RICH_MEDIA,
-        status=COMPLETE,
-        reason=REASON_OK,
+        status=COMPLETE if media_inspected else UNKNOWN,
+        reason=REASON_OK if media_inspected else REASON_PARSER_UNCERTAIN,
         source="product_page",
-        notes="media_inspected",
+        notes="media_inspected" if media_inspected else "media_not_inspected",
     )
     return bundle
 
@@ -227,4 +253,6 @@ def map_block_reason(blocked: str) -> str:
         return REASON_CAPTCHA
     if "bot" in lowered or "challenge" in lowered:
         return REASON_BOT_CHALLENGE
+    if "not_inspectable" in lowered or "page_not_inspectable" in lowered:
+        return REASON_PAGE_NOT_INSPECTABLE
     return REASON_PDP_BLOCKED

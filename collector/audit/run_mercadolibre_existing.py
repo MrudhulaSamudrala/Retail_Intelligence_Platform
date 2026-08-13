@@ -86,6 +86,7 @@ def evidence_from_stored_product(product: dict[str, Any]) -> tuple[ListingEviden
         selectors_used=["products.title"],
         source_url=product.get("canonical_url"),
         available=bool(title),
+        access_reason="PDP_BLOCKED",
     )
     return listing, product_ev
 
@@ -148,6 +149,7 @@ async def capture_product_evidence(
             source_url=product_url.split("?")[0],
             screenshot_path=shot,
             available=True,
+            access_reason="SPECS_AVAILABLE" if specs_available else "SPECS_NOT_FOUND",
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning(

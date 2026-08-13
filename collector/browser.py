@@ -34,12 +34,14 @@ def _default_user_agent() -> str:
     )
 
 
-def _stealth_init_script() -> str:
-    return """
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-    window.chrome = window.chrome || { runtime: {} };
+def _stealth_init_script(languages: list[str] | None = None) -> str:
+    langs = languages or ["en-US", "en"]
+    langs_js = "[" + ", ".join(repr(x) for x in langs) + "]"
+    return f"""
+    Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
+    Object.defineProperty(navigator, 'languages', {{ get: () => {langs_js} }});
+    Object.defineProperty(navigator, 'plugins', {{ get: () => [1, 2, 3, 4, 5] }});
+    window.chrome = window.chrome || {{ runtime: {{}} }};
     """
 
 
@@ -60,6 +62,10 @@ class BrowserSession:
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
         screenshot_dir: Path | None = None,
         cdp_url: str | None = None,
+        locale: str | None = None,
+        timezone_id: str | None = None,
+        extra_http_headers: dict[str, str] | None = None,
+        languages: list[str] | None = None,
     ) -> None:
         if headless is None:
             headless = os.getenv("COLLECTION_HEADLESS", "true").lower() in {
@@ -71,6 +77,12 @@ class BrowserSession:
         self.timeout_ms = timeout_ms
         self.screenshot_dir = screenshot_dir or SCREENSHOT_DIR
         self.cdp_url = (cdp_url if cdp_url is not None else CDP_URL).strip()
+        self.locale = locale or "en-US"
+        self.timezone_id = timezone_id or os.getenv("COLLECTION_TIMEZONE", "America/Los_Angeles")
+        self.extra_http_headers = extra_http_headers or {
+            "Accept-Language": "en-US,en;q=0.9"
+        }
+        self.languages = languages
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self.context: BrowserContext | None = None
@@ -92,8 +104,9 @@ class BrowserSession:
             else:
                 self.context = await self._browser.new_context(
                     user_agent=_default_user_agent(),
-                    locale="en-US",
+                    locale=self.locale,
                     viewport={"width": 1440, "height": 900},
+                    extra_http_headers=self.extra_http_headers,
                 )
             self.context.set_default_timeout(self.timeout_ms)
             return self
@@ -102,6 +115,7 @@ class BrowserSession:
         launch_args = [
             "--disable-blink-features=AutomationControlled",
             "--no-sandbox",
+            "--disable-features=Translate,TranslateUI",
         ]
         launch_kwargs: dict = {
             "headless": self.headless,
@@ -114,14 +128,14 @@ class BrowserSession:
         self._owns_browser = True
         self.context = await self._browser.new_context(
             user_agent=_default_user_agent(),
-            locale="en-US",
+            locale=self.locale,
             viewport={"width": 1440, "height": 900},
-            timezone_id=os.getenv("COLLECTION_TIMEZONE", "America/Los_Angeles"),
-            extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
+            timezone_id=self.timezone_id,
+            extra_http_headers=self.extra_http_headers,
             java_script_enabled=True,
         )
         self.context.set_default_timeout(self.timeout_ms)
-        await self.context.add_init_script(_stealth_init_script())
+        await self.context.add_init_script(_stealth_init_script(self.languages))
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:  # type: ignore[no-untyped-def]

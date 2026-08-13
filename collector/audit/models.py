@@ -44,6 +44,7 @@ class ProductEvidence:
     source_url: Optional[str] = None
     screenshot_path: Optional[str] = None
     available: bool = True
+    access_reason: Optional[str] = None
 
 
 @dataclass

@@ -267,12 +267,13 @@ def evaluate_p3(ctx: AuditContext) -> AuditCheckResult:
             screenshot_path=product.screenshot_path,
         )
     if not product.specs_available:
+        reason = product.access_reason or "specification_table_unavailable"
         return _unknown(
             "P3",
-            "specification_table_unavailable",
+            reason,
             source_url=product.source_url,
             screenshot_path=product.screenshot_path,
-            details={"selectors": product.selectors_used},
+            details={"selectors": product.selectors_used, "access_reason": product.access_reason},
         )
 
     specs_text = specs_to_text(product.specs)

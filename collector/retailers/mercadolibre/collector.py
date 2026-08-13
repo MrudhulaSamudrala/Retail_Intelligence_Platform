@@ -22,6 +22,7 @@ from collector.retailers.mercadolibre.product_page import (
     is_bot_challenge,
     parse_product_page,
 )
+from collector.retailers.mercadolibre.layers import is_network_payload_useful
 from collector.retailers.mercadolibre.relevance import is_in_collection_scope, title_looks_irrelevant
 
 logger = logging.getLogger("collector.mercadolibre")
@@ -38,6 +39,15 @@ class MercadoLibreCollector(RetailerCollector):
         self.discovery = load_discovery_config()
         self.allow_listing_only = bool(
             self.discovery.get("allow_listing_only_fallback", True)
+        )
+
+    def build_browser_session(self) -> BrowserSession:
+        """Portuguese locale; do not enable Chrome Translate."""
+        return BrowserSession(
+            locale="pt-BR",
+            timezone_id="America/Sao_Paulo",
+            extra_http_headers={"Accept-Language": "pt-BR,pt;q=0.9,en;q=0.5"},
+            languages=["pt-BR", "pt"],
         )
 
     def is_in_collection_scope(self, product: NormalizedProduct) -> bool:
@@ -286,6 +296,29 @@ class MercadoLibreCollector(RetailerCollector):
         candidate: ListingCandidate,
     ) -> NormalizedProduct:
         page = await session.new_page()
+        network_payloads: list[Any] = []
+
+        async def _capture_response(response) -> None:
+            try:
+                url = response.url
+                headers = response.headers or {}
+                ct = headers.get("content-type") or headers.get("Content-Type") or ""
+                if not is_network_payload_useful(url, ct):
+                    return
+                body = await response.json()
+                if body is not None:
+                    network_payloads.append(body)
+            except Exception:  # noqa: BLE001
+                return
+
+        page.on("response", _capture_response)
+        listing_raw = dict(candidate.raw or {})
+        listing_raw.setdefault("title", candidate.title)
+        listing_raw.setdefault("price_text", candidate.price_text)
+        listing_raw.setdefault("list_price_text", candidate.list_price_text)
+        listing_raw.setdefault("promo_text", candidate.promo_text)
+        listing_raw.setdefault("sku", candidate.retailer_sku)
+        listing_raw.setdefault("href", candidate.source_url)
         try:
             await session.goto(
                 page, candidate.source_url, wait_until="domcontentloaded"
@@ -320,7 +353,7 @@ class MercadoLibreCollector(RetailerCollector):
                     promo_text=candidate.promo_text,
                     category_raw=candidate.category_raw,
                     detail_page_status=blocked,
-                    extra_raw=dict(candidate.raw or {}),
+                    extra_raw=listing_raw,
                 )
 
             try:
@@ -335,6 +368,8 @@ class MercadoLibreCollector(RetailerCollector):
                     fallback_list_price=candidate.list_price_text,
                     fallback_promo=candidate.promo_text,
                     category_raw=candidate.category_raw,
+                    listing_raw=listing_raw,
+                    network_payloads=network_payloads,
                 )
             except RuntimeError as exc:
                 if self.allow_listing_only and "verification" in str(exc).lower():
@@ -350,7 +385,7 @@ class MercadoLibreCollector(RetailerCollector):
                         promo_text=candidate.promo_text,
                         category_raw=candidate.category_raw,
                         detail_page_status="account_verification",
-                        extra_raw=dict(candidate.raw or {}),
+                        extra_raw=listing_raw,
                     )
                 raise
 

@@ -61,10 +61,29 @@ def build_product_evidence_from_normalized(
         "bot_challenge",
         "listing_only",
     }
+    access_reason = None
+    evidence_blob = raw.get("evidence") if isinstance(raw.get("evidence"), dict) else {}
+    surfaces = evidence_blob.get("surfaces") if isinstance(evidence_blob, dict) else {}
+    specs_surface = surfaces.get("specifications") if isinstance(surfaces, dict) else None
+    pdp_surface = surfaces.get("pdp") if isinstance(surfaces, dict) else None
+    is_ml = product.retailer_code == "mercadolibre"
     if listing_only:
         specs_available = False
+        access_reason = "PDP_BLOCKED"
+        if isinstance(pdp_surface, dict) and pdp_surface.get("reason"):
+            access_reason = str(pdp_surface.get("reason"))
+    elif is_ml and isinstance(raw_specs, dict):
+        specs_available = bool(raw.get("specs_table_present")) or (
+            isinstance(specs_surface, dict) and specs_surface.get("status") == "COMPLETE"
+        )
+        if not specs_available:
+            access_reason = "SPECS_NOT_FOUND"
+            if isinstance(specs_surface, dict) and specs_surface.get("reason"):
+                access_reason = str(specs_surface.get("reason"))
+        else:
+            access_reason = "SPECS_AVAILABLE"
     elif isinstance(raw_specs, dict):
-        # Empty dict after a real PDP inspection still counts as inspected.
+        # Newegg / other: empty dict after a real PDP inspection still counts.
         specs_available = True
     else:
         specs_available = bool(specs)
@@ -83,6 +102,7 @@ def build_product_evidence_from_normalized(
         source_url=product.source_url,
         screenshot_path=screenshot_path,
         available=True,
+        access_reason=access_reason,
     )
 
 

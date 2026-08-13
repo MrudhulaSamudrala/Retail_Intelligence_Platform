@@ -8,6 +8,8 @@ from urllib.parse import parse_qs, urlparse, urlunparse
 
 from collector.base import ListingCandidate
 from collector.retailers.mercadolibre.selectors import (
+    LISTING_ATTRIBUTE_SELECTORS,
+    LISTING_BADGE_SELECTORS,
     LISTING_CARD_SELECTORS,
     LISTING_DISCOUNT_SELECTORS,
     LISTING_PRICE_CENTS_SELECTORS,
@@ -190,6 +192,28 @@ async def extract_listings_from_page(
         const cents = firstText(card, centsSels);
         const was = firstText(card, wasSels);
         const discount = firstText(card, discSels);
+        const aria = (a.getAttribute('aria-label') || card.getAttribute('aria-label') || '').trim() || null;
+        const linkTitle = (a.getAttribute('title') || '').trim() || null;
+        const img = card.querySelector('img');
+        const imgAlt = img ? (img.getAttribute('alt') || '').trim() || null : null;
+        const attributes = [];
+        for (const sel of (args.attrSels || [])) {
+          for (const n of Array.from(card.querySelectorAll(sel))) {
+            const t = (n.textContent || '').replace(/\\s+/g, ' ').trim();
+            if (t) attributes.push(t);
+          }
+        }
+        const badgeAlts = [];
+        const badgeTexts = [];
+        for (const sel of (args.badgeSels || [])) {
+          for (const n of Array.from(card.querySelectorAll(sel))) {
+            const alt = (n.getAttribute('alt') || n.getAttribute('title') || '').trim();
+            if (alt) badgeAlts.push(alt);
+            const t = (n.textContent || '').replace(/\\s+/g, ' ').trim();
+            if (t) badgeTexts.push(t);
+          }
+        }
+        const tileText = (card.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 800);
         out.push({
           title,
           href,
@@ -197,6 +221,13 @@ async def extract_listings_from_page(
           price_cents: cents,
           list_price: was,
           discount,
+          aria_label: aria,
+          link_title: linkTitle,
+          img_alt: imgAlt,
+          attributes,
+          badge_alts: badgeAlts,
+          badge_texts: badgeTexts,
+          tile_text: tileText,
         });
       }
       return out;
@@ -211,20 +242,39 @@ async def extract_listings_from_page(
             "centsSels": LISTING_PRICE_CENTS_SELECTORS,
             "wasSels": LISTING_WAS_PRICE_SELECTORS,
             "discSels": LISTING_DISCOUNT_SELECTORS,
+            "attrSels": LISTING_ATTRIBUTE_SELECTORS,
+            "badgeSels": LISTING_BADGE_SELECTORS,
         },
     )
     results: list[ListingCandidate] = []
     for card in raw_cards or []:
         price = combine_price_parts(card.get("price_fraction"), card.get("price_cents"))
         promo = card.get("discount")
+        title = (card.get("title") or "").strip() or None
+        if not title:
+            title = (card.get("aria_label") or card.get("link_title") or card.get("img_alt") or "").strip() or None
         cand = parse_listing_card(
-            title=card.get("title"),
+            title=title,
             href=card.get("href"),
             price_text=price,
             list_price_text=card.get("list_price"),
             promo_text=promo,
             category_raw=category_raw,
-            extra={"discount_text": promo},
+            extra={
+                "discount_text": promo,
+                "aria_label": card.get("aria_label"),
+                "link_title": card.get("link_title"),
+                "img_alt": card.get("img_alt"),
+                "attributes": card.get("attributes") or [],
+                "badge_alts": card.get("badge_alts") or [],
+                "badge_texts": card.get("badge_texts") or [],
+                "tile_text": card.get("tile_text"),
+                "price_text": price,
+                "list_price_text": card.get("list_price"),
+                "promo_text": promo,
+                "title": title,
+                "href": card.get("href"),
+            },
         )
         if cand:
             results.append(cand)
