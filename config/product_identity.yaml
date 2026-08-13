@@ -14,6 +14,10 @@ matching:
   # Title-only similarity never reaches MATCHED.
   title_similarity_cap: 0.45
   require_oem_for_matched: true
+  # Tier notes (enforced in analytics.product_identity.matching.score_pair):
+  #   Tier 1 — exact GTIN / UPC / EAN
+  #   Tier 2 — manufacturer model / MPN (+ OEM) or OEM+specs+strong title
+  #   Tier 3 — POSSIBLE_MATCH only (never auto-enters same-product analytics)
 
 visibility:
   # Product visibility score (configurable; not brand Share of Voice).

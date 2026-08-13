@@ -78,6 +78,27 @@ class CollectionPipeline:
 
                     try:
                         product = await self.collector.fetch_product(browser, candidate)
+                        if not self.collector.is_in_collection_scope(product):
+                            outcome.skipped_irrelevant.append(
+                                {
+                                    "sku": sku,
+                                    "url": candidate.source_url,
+                                    "title": product.title,
+                                    "product_type": product.product_type,
+                                    "reason": "out_of_collection_scope",
+                                }
+                            )
+                            logger.info(
+                                "product_skipped_irrelevant",
+                                extra={
+                                    "event": "product_skipped_irrelevant",
+                                    "retailer": self.collector.code,
+                                    "run_id": run_id,
+                                    "sku": sku,
+                                    "product_type": product.product_type,
+                                },
+                            )
+                            continue
                         observed_at = datetime.now(timezone.utc)
                         self.persister.save_product(
                             product,

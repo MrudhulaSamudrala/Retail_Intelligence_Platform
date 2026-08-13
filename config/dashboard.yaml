@@ -1,0 +1,40 @@
+# Retail Competitive Intelligence — dashboard configuration
+# Thresholds and display settings only. All KPI values come from PostgreSQL.
+
+dashboard:
+  title: Retail Competitive Intelligence
+  collections_per_day: 3
+  schedule_cron: "0 8,14,20 * * *"
+  schedule_timezone: UTC
+  stale_hours: 12
+  cache_ttl_seconds: 60
+
+alerts:
+  compliance_score_below: 0.70
+  sos_share_decline_pp: 3.0
+  price_change_pct: 10.0
+  search_visibility_decline_pp: 5.0
+  discounted_share_high: 0.50
+  collection_stale_hours: 12
+
+display:
+  default_date_range_days: 30
+  comparison_period_days: 30
+  max_table_rows: 500
+  currency_label_when_mixed: "Multiple currencies — shown separately"
+
+filters:
+  # Only surfaces that analytics scopes support
+  retailer: true
+  country: true
+  product_type: true
+  brand: true
+  oem: true
+  date_range: true
+  gaming: false  # SoS gaming is baked into sos_universe_v1; not a free filter
+  evidence_status: false  # not a global analytics filter yet
+
+compliance:
+  notebook_weight_label: "Notebook = 85%"
+  desktop_weight_label: "Desktop = 15%"
+  check_codes: [S1, S2, P1, P2, P3, P4, P5]

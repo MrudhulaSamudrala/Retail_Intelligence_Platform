@@ -76,11 +76,30 @@ def _load_rows(session: Session, scope: SovScope) -> Sequence[SearchObservation]
     return session.scalars(stmt).all()
 
 
+def _observation_is_eligible(row: SearchObservation) -> bool:
+    """Historical junk can be flagged ineligible while preserving the row."""
+    details = row.details if isinstance(row.details, dict) else {}
+    if "is_eligible" in details:
+        return bool(details.get("is_eligible"))
+    # Backfill gate for Mercado Libre historical pollution (do not delete rows).
+    if row.retailer_code == "mercadolibre":
+        from collector.retailers.mercadolibre.classification import (
+            classify_mercadolibre_product,
+            is_collection_eligible,
+        )
+
+        return is_collection_eligible(classify_mercadolibre_product(title=row.title))
+    return True
+
+
 def _dedupe_latest_search(
     rows: Sequence[SearchObservation],
 ) -> list[SearchObservation]:
     """Keep one observation per (retailer, country, keyword, position) from the
     latest search batch (by observed_at), avoiding join/double-count artifacts.
+
+    Ineligible historical hits (e.g. ML TVs in search) are excluded from SoV
+    denominators while remaining stored append-only.
     """
     if not rows:
         return []
@@ -96,6 +115,7 @@ def _dedupe_latest_search(
         r
         for r in rows
         if r.observed_at == latest[(r.retailer_code, r.country_code, r.keyword)]
+        and _observation_is_eligible(r)
     ]
     # Dedupe identical positions within the batch (keep first id)
     seen: set[tuple[str, str, str, int]] = set()

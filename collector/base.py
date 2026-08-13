@@ -30,6 +30,7 @@ class CollectionOutcome:
     success: list[NormalizedProduct] = field(default_factory=list)
     failed: list[dict[str, Any]] = field(default_factory=list)
     skipped_duplicates: list[str] = field(default_factory=list)
+    skipped_irrelevant: list[dict[str, Any]] = field(default_factory=list)
     discovered: int = 0
     collection_run_id: Optional[int] = None
     status: Optional[str] = None
@@ -42,6 +43,15 @@ class RetailerCollector(ABC):
     code: str
     country_code: str
     currency: str
+
+    def is_in_collection_scope(self, product: NormalizedProduct) -> bool:
+        """Whether a normalized product counts toward the collection limit.
+
+        Default: all successfully fetched products count. Retailers with noisy
+        discovery surfaces (e.g. Mercado Libre ofertas) may override to require
+        evidence-based computing product types.
+        """
+        return True
 
     @abstractmethod
     async def discover_listings(

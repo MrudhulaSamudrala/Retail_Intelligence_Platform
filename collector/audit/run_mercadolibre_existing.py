@@ -2,8 +2,8 @@
 
 Reuses the common audit engine. Product-detail pages are often gated behind
 Mercado Libre account-verification in automated CDP sessions; when blocked we
-evaluate using listing/title evidence already persisted on the product row and
-leave checks UNKNOWN when evidence is insufficient (never invent FAIL).
+keep listing/title evidence for S1/P1 only and leave P2–P5 UNKNOWN when the
+required product-page evidence was not inspected (never invent FAIL).
 """
 
 from __future__ import annotations
@@ -58,11 +58,16 @@ def load_products(session) -> list[dict[str, Any]]:
 
 
 def evidence_from_stored_product(product: dict[str, Any]) -> tuple[ListingEvidence, ProductEvidence]:
+    """Build listing/PDP evidence from persisted fields when live PDP is blocked.
+
+    Listing title may support S1/P1. It must NOT be promoted into PDP badge
+    (``page_text``) or specs-table evidence — missing PDP inspection → UNKNOWN
+    for P2/P3/P4/P5.
+    """
     title = product.get("title")
-    specs = specs_from_title(title)
     listing = ListingEvidence(
         title=title,
-        tile_text=title,
+        tile_text=None,
         badge_texts=[],
         selectors_used=["products.title"],
         source_url=OFERTAS_URL,
@@ -70,15 +75,15 @@ def evidence_from_stored_product(product: dict[str, Any]) -> tuple[ListingEviden
     )
     product_ev = ProductEvidence(
         title=title,
-        specs=specs,
-        specs_available=bool(specs),
-        page_text=title,
+        specs={},
+        specs_available=False,
+        page_text=None,
         badge_texts=[],
         brand_media_signals=[],
         oem_media_signals=[],
         media_inspected=False,
         badges_inspected=False,
-        selectors_used=["products.title", "title_heuristics"],
+        selectors_used=["products.title"],
         source_url=product.get("canonical_url"),
         available=bool(title),
     )
@@ -99,6 +104,7 @@ async def capture_product_evidence(
                 "ml_audit_pdp_verification",
                 extra={"event": "ml_audit_pdp_verification", "sku": sku},
             )
+            # Keep listing-title for P1; do not invent PDP badge/specs evidence.
             return fallback
         if is_bot_challenge(html) or is_bot_challenge(title):
             return fallback
@@ -122,13 +128,16 @@ async def capture_product_evidence(
                         specs[k] = v
             if specs:
                 break
+        # Title heuristics may enrich display fields but do not mark specs_available
+        # unless a real specification table was present on the PDP.
+        specs_available = bool(specs)
         for k, v in specs_from_title(h1 or fallback.title).items():
             specs.setdefault(k, v)
         shot = await browser.screenshot(page, label=f"ml_audit_{sku}")
         return ProductEvidence(
             title=h1 or fallback.title,
             specs=specs,
-            specs_available=bool(specs),
+            specs_available=specs_available,
             page_text=((await page.inner_text("body"))[:4000] if True else None),
             badge_texts=[],
             brand_media_signals=[],

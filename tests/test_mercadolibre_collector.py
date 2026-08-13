@@ -318,3 +318,263 @@ def test_specs_from_title() -> None:
     assert "Memória RAM" in specs
     assert "Armazenamento" in specs
     assert "Placa de vídeo" in specs
+
+
+# ---------------------------------------------------------------------------
+# Blocker 1 — discovery pollution / valid-product universe
+# ---------------------------------------------------------------------------
+
+
+def test_ml_tv_not_classified_as_notebook() -> None:
+    from collector.normalize import UNKNOWN, detect_product_type
+
+    title = "Smart Tv Philips 50 4k 50pug7300 Comando De Voz Bluetooth"
+    assert detect_product_type(title=title, category_raw="notebook_ofertas") == UNKNOWN
+    assert detect_product_type(title=title, category_raw="notebook_gamer_ofertas") == UNKNOWN
+
+
+def test_ml_power_bank_not_classified_as_notebook() -> None:
+    from collector.normalize import UNKNOWN, detect_product_type
+
+    title = (
+        "Carregador Portátil Power Bank Turbo 20000mah 22.5w Universal "
+        "Para iPhone Samsung"
+    )
+    assert detect_product_type(title=title, category_raw="notebook_gamer_ofertas") == UNKNOWN
+
+
+def test_ml_supplement_not_classified_as_notebook() -> None:
+    from collector.normalize import UNKNOWN, detect_product_type
+
+    title = "Omega Plus 240 Caps Dark Lab"
+    assert detect_product_type(title=title, category_raw="notebook_gamer_ofertas") == UNKNOWN
+
+
+def test_ml_exercise_bike_not_classified_via_computador_substring() -> None:
+    from collector.normalize import UNKNOWN, detect_product_type
+
+    title = "Bicicleta Spinning Sevenfit EPS-988 Com Volante de 6 kg e Computador"
+    assert detect_product_type(title=title, category_raw="ofertas_query") == UNKNOWN
+
+
+def test_ml_valid_notebook_classified() -> None:
+    from collector.normalize import detect_product_type
+
+    title = (
+        "Notebook Gamer Lenovo LOQ 15irx9 Intel Core i5-13450HX 16gb 512gb "
+        "SSD RTX 3050 Windows 11"
+    )
+    assert detect_product_type(title=title, category_raw="MLB1652") == "notebook"
+    # Discovery slug alone must not be required — title evidence is enough.
+    assert detect_product_type(title=title, category_raw="notebook_ofertas") == "notebook"
+
+
+def test_discovery_slug_alone_does_not_force_notebook() -> None:
+    from collector.normalize import UNKNOWN, detect_product_type
+
+    assert (
+        detect_product_type(title="Cabo USB-C generico 2m", category_raw="notebook_ofertas")
+        == UNKNOWN
+    )
+
+
+def test_irrelevant_listing_does_not_count_toward_valid_limit() -> None:
+    from collector.base import CollectionOutcome, ListingCandidate
+    from collector.normalize import build_normalized_product
+    from collector.retailers.mercadolibre.relevance import is_in_collection_scope
+
+    tv = build_normalized_product(
+        retailer_code="mercadolibre",
+        country_code="BR",
+        currency="BRL",
+        retailer_sku="MLBTV1",
+        source_url="https://www.mercadolivre.com.br/p/MLBTV1",
+        title="Smart Tv 43 Aoc Led Roku Full Hd",
+        category_raw="notebook_gamer_ofertas",
+    )
+    nb = build_normalized_product(
+        retailer_code="mercadolibre",
+        country_code="BR",
+        currency="BRL",
+        retailer_sku="MLBNB1",
+        source_url="https://www.mercadolivre.com.br/p/MLBNB1",
+        title="Notebook ASUS Vivobook AMD Ryzen 7 8GB RAM 512GB SSD",
+        category_raw="MLB1652",
+    )
+    assert not is_in_collection_scope(product_type=tv.product_type, title=tv.title)
+    assert is_in_collection_scope(product_type=nb.product_type, title=nb.title)
+
+    outcome = CollectionOutcome()
+    # Simulate pipeline counting: only in-scope products join success.
+    for product in (tv, nb, tv):
+        if is_in_collection_scope(product_type=product.product_type, title=product.title):
+            outcome.success.append(product)
+        else:
+            outcome.skipped_irrelevant.append({"sku": product.retailer_sku})
+    assert len(outcome.success) == 1
+    assert len(outcome.skipped_irrelevant) == 2
+    assert outcome.success[0].retailer_sku == "MLBNB1"
+
+
+def test_collector_continues_after_irrelevant_and_limit_means_valid_unique() -> None:
+    """limit=N means up to N valid unique products; junk/dupes do not fill the quota."""
+    from collector.base import CollectionOutcome
+    from collector.normalize import build_normalized_product
+    from collector.retailers.mercadolibre.relevance import is_in_collection_scope
+
+    def _prod(sku: str, title: str) -> object:
+        return build_normalized_product(
+            retailer_code="mercadolibre",
+            country_code="BR",
+            currency="BRL",
+            retailer_sku=sku,
+            source_url=f"https://www.mercadolivre.com.br/p/{sku}",
+            title=title,
+            category_raw="MLB1652",
+        )
+
+    stream = [
+        _prod("MLB1", "Smart Tv Philips 50 4k"),
+        _prod("MLB2", "Notebook Acer Aspire AMD Ryzen 5 8GB 512GB SSD"),
+        _prod("MLB2", "Notebook Acer Aspire AMD Ryzen 5 8GB 512GB SSD"),  # dup
+        _prod("MLB3", "Power Bank Turbo 20000mah"),
+        _prod("MLB4", "Notebook Lenovo IdeaPad Intel Core i5 16GB SSD"),
+        _prod("MLB5", "Omega Plus 240 Caps Dark Lab"),
+        _prod("MLB6", "Notebook ASUS TUF Gaming AMD Ryzen 7 RTX 4060"),
+    ]
+    limit = 2
+    outcome = CollectionOutcome()
+    seen: set[str] = set()
+    for product in stream:
+        if len(outcome.success) >= limit:
+            break
+        sku = product.retailer_sku
+        if sku in seen:
+            outcome.skipped_duplicates.append(sku)
+            continue
+        seen.add(sku)
+        if not is_in_collection_scope(product_type=product.product_type, title=product.title):
+            outcome.skipped_irrelevant.append({"sku": sku, "title": product.title})
+            continue  # continue discovery after junk
+        outcome.success.append(product)
+
+    assert len(outcome.success) == 2
+    assert {p.retailer_sku for p in outcome.success} == {"MLB2", "MLB4"}
+    assert len(outcome.skipped_irrelevant) == 2  # TV + power bank before quota filled
+    assert outcome.skipped_duplicates == ["MLB2"]
+    # Supplement after quota would not be processed; ensure we stopped at valid limit
+    assert all(p.product_type == "notebook" for p in outcome.success)
+
+
+def test_duplicate_products_do_not_count_twice() -> None:
+    from collector.retailers.mercadolibre.listing import dedupe_candidates, parse_listing_card
+
+    cards = []
+    for href in (
+        "https://www.mercadolivre.com.br/a/p/MLB111",
+        "https://www.mercadolivre.com.br/a/p/MLB111?x=1",
+        "https://www.mercadolivre.com.br/b/p/MLB222",
+    ):
+        cards.append(
+            parse_listing_card(
+                title="Notebook ASUS Ryzen 7",
+                href=href,
+                price_text="1.000,00",
+            )
+        )
+    unique = dedupe_candidates([c for c in cards if c])
+    assert len(unique) == 2
+
+
+def test_mercadolibre_collector_scope_rejects_irrelevant() -> None:
+    from collector.retailers.mercadolibre.collector import MercadoLibreCollector
+    from collector.normalize import build_normalized_product
+
+    # Avoid network/config side effects beyond YAML loads.
+    collector = object.__new__(MercadoLibreCollector)
+    tv = build_normalized_product(
+        retailer_code="mercadolibre",
+        country_code="BR",
+        currency="BRL",
+        retailer_sku="X",
+        source_url="https://www.mercadolivre.com.br/p/X",
+        title="Smart Tv 43 Aoc Led",
+    )
+    nb = build_normalized_product(
+        retailer_code="mercadolibre",
+        country_code="BR",
+        currency="BRL",
+        retailer_sku="Y",
+        source_url="https://www.mercadolivre.com.br/p/Y",
+        title="Notebook Dell Intel Core Ultra 7 16GB",
+    )
+    assert collector.is_in_collection_scope(tv) is False
+    assert collector.is_in_collection_scope(nb) is True
+
+
+def test_newegg_scope_unchanged_accepts_all() -> None:
+    from collector.retailers.newegg.collector import NeweggCollector
+    from collector.normalize import build_normalized_product
+
+    collector = object.__new__(NeweggCollector)
+    product = build_normalized_product(
+        retailer_code="newegg",
+        country_code="US",
+        currency="USD",
+        retailer_sku="N82E16834204369",
+        source_url="https://www.newegg.com/p/N82E16834204369",
+        title="ASUS ROG Zephyrus G14 Gaming Laptop AMD Ryzen 9",
+        category_raw="gaming_laptops",
+    )
+    assert collector.is_in_collection_scope(product) is True
+    # Newegg type detection still uses category fallback when appropriate.
+    from collector.normalize import detect_product_type
+
+    assert (
+        detect_product_type(
+            title="ASUS ROG Zephyrus G14 Gaming Laptop AMD Ryzen 9",
+            category_raw="gaming_laptops",
+        )
+        == "notebook"
+    )
+
+
+def test_historical_observations_preserved_on_type_correction(session: Session) -> None:
+    """Correcting live product_type must not delete prior snapshots/prices."""
+    from collector.normalize import UNKNOWN
+
+    persister = CollectionPersister(session)
+    run = persister.start_run(
+        retailer_code="mercadolibre", country_code="BR", run_type="pricing"
+    )
+    session.commit()
+    product = build_from_listing(
+        retailer_code="mercadolibre",
+        country_code="BR",
+        currency="BRL",
+        sku="MLB65588451",
+        source_url="https://www.mercadolivre.com.br/x/p/MLB65588451",
+        title="Carregador Portátil Power Bank Turbo 20000mah",
+        price_text="99,90",
+        list_price_text=None,
+        promo_text=None,
+        category_raw="notebook_gamer_ofertas",
+        detail_page_status="listing_only",
+    )
+    # Simulate the old bug: forced notebook on the row.
+    product.product_type = "notebook"
+    pid = persister.save_product(product, collection_run_id=run.id)
+    session.commit()
+    assert session.scalar(select(func.count()).select_from(ProductSnapshot)) == 1
+    assert session.scalar(select(func.count()).select_from(PriceHistory)) == 1
+
+    row = session.get(Product, pid)
+    assert row is not None
+    row.product_type = UNKNOWN  # careful correction of live attributes only
+    session.commit()
+
+    assert session.scalar(select(func.count()).select_from(ProductSnapshot)) == 1
+    assert session.scalar(select(func.count()).select_from(PriceHistory)) == 1
+    snap = session.scalars(select(ProductSnapshot)).one()
+    assert snap.product_type == "notebook"  # historical observation preserved
+    assert row.product_type == UNKNOWN

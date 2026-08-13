@@ -1,28 +1,84 @@
 # Mercado Libre Brazil controlled collection scope.
-# lista.mercadolivre.com.br search pages are often gated behind account-verification
-# in automated CDP sessions. Ofertas category pages currently expose poly-card
-# listings without that wall and are used as the primary discovery surface.
+#
+# PRIMARY: search / category listing surfaces (relevant computing queries).
+# SECONDARY: ofertas pages as enrichment fallback only (often polluted).
+#
+# lista.mercadolivre.com.br is frequently gated by account-verification in
+# automated CDP sessions — the collector records BLOCKED and continues.
+#
+# product_type_hint is informational only — never force classification from it.
+# Chrome Translate is NOT used. Portuguese DOM → PT-aware parse → English normals.
 
 retailer_code: mercadolibre
 country_code: BR
 currency: BRL
 
-discovery:
-  - name: notebook_ofertas
+# Tried first. Surface = search | category.
+discovery_primary:
+  - name: search_notebook_gamer
+    surface: search
     product_type_hint: notebook
-    # MLB1652 = Notebooks category on Mercado Libre Brazil
+    category_label: "search:notebook gamer"
+    query: "notebook gamer"
+    url: "https://lista.mercadolivre.com.br/notebook-gamer"
+  - name: search_notebook_rtx
+    surface: search
+    product_type_hint: notebook
+    category_label: "search:notebook rtx"
+    query: "notebook rtx"
+    url: "https://lista.mercadolivre.com.br/notebook-rtx"
+  - name: search_notebook_ryzen
+    surface: search
+    product_type_hint: notebook
+    category_label: "search:notebook ryzen"
+    query: "notebook ryzen"
+    url: "https://lista.mercadolivre.com.br/notebook-ryzen"
+  - name: search_notebook_intel
+    surface: search
+    product_type_hint: notebook
+    category_label: "search:notebook intel"
+    query: "notebook intel"
+    url: "https://lista.mercadolivre.com.br/notebook-intel"
+  - name: search_pc_gamer
+    surface: search
+    product_type_hint: desktop
+    category_label: "search:pc gamer"
+    query: "pc gamer"
+    url: "https://lista.mercadolivre.com.br/pc-gamer"
+  - name: search_gaming_laptop
+    surface: search
+    product_type_hint: notebook
+    category_label: "search:gaming laptop"
+    query: "gaming laptop"
+    url: "https://lista.mercadolivre.com.br/gaming-laptop"
+
+# Used only when primary yields too few in-scope candidates (or all blocked).
+discovery_secondary:
+  - name: notebook_ofertas
+    surface: ofertas
+    product_type_hint: notebook
+    # MLB1652 = Notebooks category. Label omits type aliases.
+    category_label: "MLB1652"
     url: "https://www.mercadolivre.com.br/ofertas?category=MLB1652"
   - name: notebook_gamer_ofertas
+    surface: ofertas
     product_type_hint: notebook
+    category_label: "ofertas_query"
     url: "https://www.mercadolivre.com.br/ofertas?q=notebook%20gamer"
   - name: desktop_gamer_ofertas
+    surface: ofertas
     product_type_hint: desktop
+    category_label: "ofertas_query"
     url: "https://www.mercadolivre.com.br/ofertas?q=pc%20gamer"
 
-limits:
-  max_pages_per_query: 1
-  min_title_length: 8
+# Back-compat alias — collector prefers discovery_primary + discovery_secondary.
+discovery: []
 
-# When product detail pages redirect to account-verification, persist listing-level
-# observations and mark raw_payload.detail_page_status accordingly.
+limits:
+  max_pages_per_query: 2
+  min_title_length: 8
+  discovery_overscan_factor: 4
+  # Prefer this many in-scope candidates from primary before opening secondary.
+  secondary_after_unique: 8
+
 allow_listing_only_fallback: true

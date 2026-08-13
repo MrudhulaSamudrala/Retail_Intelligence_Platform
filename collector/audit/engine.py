@@ -53,10 +53,21 @@ def build_product_evidence_from_normalized(
         if value and key not in specs:
             specs[key] = value
 
-    specs_available = bool(specs) or bool(raw.get("specs") == {})
-    # If collector explicitly stored an empty specs dict after inspection, treat as available.
-    if isinstance(raw_specs, dict):
+    detail_status = str(raw.get("detail_page_status") or "")
+    source = str(raw.get("source") or "")
+    # Title-heuristic / listing-only payloads are not specification-table evidence.
+    listing_only = source == "listing_card" or detail_status in {
+        "account_verification",
+        "bot_challenge",
+        "listing_only",
+    }
+    if listing_only:
+        specs_available = False
+    elif isinstance(raw_specs, dict):
+        # Empty dict after a real PDP inspection still counts as inspected.
         specs_available = True
+    else:
+        specs_available = bool(specs)
 
     return ProductEvidence(
         title=product.title,

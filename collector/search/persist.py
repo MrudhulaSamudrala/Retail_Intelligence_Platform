@@ -54,6 +54,22 @@ def persist_search_run(
             )
             if existing is not None:
                 product_id = existing.id
+
+        details = dict(hit.details or {})
+        # Eligibility flag: preserve observation, allow analytics to exclude junk.
+        if "is_eligible" not in details:
+            if hit.retailer_code == "mercadolibre":
+                from collector.retailers.mercadolibre.classification import (
+                    is_collection_eligible,
+                    classify_mercadolibre_product,
+                )
+
+                classified = classify_mercadolibre_product(title=hit.title)
+                details["is_eligible"] = is_collection_eligible(classified)
+                details["classification_status"] = classified.status
+            else:
+                details["is_eligible"] = True
+
         obs.add_search(
             collection_run_id=collection_run_id,
             product_id=product_id,
@@ -74,7 +90,7 @@ def persist_search_run(
             collection_status=run.collection_status,
             search_url=hit.search_url or run.search_url,
             pages_collected=run.pages_collected,
-            details=hit.details or None,
+            details=details or None,
         )
 
     if run_obj is not None:

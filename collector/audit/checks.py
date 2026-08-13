@@ -218,7 +218,9 @@ def evaluate_p2(ctx: AuditContext) -> AuditCheckResult:
             source_url=product.source_url,
             screenshot_path=product.screenshot_path,
         )
-    if not product.badges_inspected and not product.badge_texts and product.page_text is None:
+    # Listing/title text must never count as product-page badge evidence.
+    # page_text is only supporting evidence when the PDP badge DOM was inspected.
+    if not product.badges_inspected and not product.badge_texts:
         return _unknown(
             "P2",
             "product_badge_evidence_missing",
@@ -230,17 +232,8 @@ def evaluate_p2(ctx: AuditContext) -> AuditCheckResult:
     hit = brand_badge_match(
         ctx.brand or "",
         badge_texts=product.badge_texts,
-        page_text=product.page_text if product.badges_inspected or product.badge_texts else None,
+        page_text=product.page_text if product.badges_inspected else None,
     )
-    # If badges were inspected (even empty) or badge texts provided, allow FAIL.
-    inspected = product.badges_inspected or bool(product.badge_texts) or product.page_text is not None
-    if not inspected:
-        return _unknown(
-            "P2",
-            "product_badge_evidence_missing",
-            source_url=product.source_url,
-            screenshot_path=product.screenshot_path,
-        )
 
     details = {
         "brand": ctx.brand,

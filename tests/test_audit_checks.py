@@ -239,6 +239,43 @@ def test_p2_pass_fail_unknown() -> None:
     )
 
 
+def test_p2_listing_title_is_not_pdp_badge_evidence() -> None:
+    """Missing PDP badge inspection must be UNKNOWN — never FAIL from title text."""
+    result = evaluate_p2(
+        _ctx(
+            brand="AMD",
+            product=ProductEvidence(
+                title="Notebook ASUS AMD Ryzen 7",
+                badges_inspected=False,
+                badge_texts=[],
+                page_text="Notebook ASUS AMD Ryzen 7",  # listing title wrongly promoted
+            ),
+        )
+    )
+    assert result.result == UNKNOWN
+    assert result.details.get("reason") == "product_badge_evidence_missing"
+
+
+def test_p2_account_verification_fallback_is_unknown() -> None:
+    from collector.audit.run_mercadolibre_existing import evidence_from_stored_product
+
+    listing, product = evidence_from_stored_product(
+        {
+            "title": "Notebook ASUS Vivobook AMD Ryzen 7 8GB",
+            "canonical_url": "https://www.mercadolivre.com.br/p/MLB1",
+        }
+    )
+    assert product.page_text is None
+    assert product.badges_inspected is False
+    assert product.specs_available is False
+    assert listing.tile_text is None
+    ctx = _ctx(brand="AMD", oem="Asus", listing=listing, product=product)
+    assert evaluate_p2(ctx).result == UNKNOWN
+    assert evaluate_p1(ctx).result in {PASS, FAIL}  # title evidence allowed for P1
+    assert evaluate_p3(ctx).result == UNKNOWN
+
+
+
 # ---------------------------------------------------------------------------
 # P3 — specification table
 # ---------------------------------------------------------------------------

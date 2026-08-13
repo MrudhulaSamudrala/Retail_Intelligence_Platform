@@ -3,13 +3,13 @@
 product_types:
   - code: notebook
     name: Notebook
-    aliases: [notebook, notebook pc, laptop, chromebook, ultrabook, macbook]
+    aliases: [notebook, notebook pc, laptop, chromebook, ultrabook, macbook, notebook gamer]
     included_in_compliance_weighting: true
     compliance_segment_weight: 0.85
 
   - code: desktop
     name: Desktop
-    aliases: [desktop, desktop pc, tower, aio, all-in-one, imac, mac mini, mac studio]
+    aliases: [desktop, desktop pc, tower, aio, all-in-one, imac, mac mini, mac studio, pc gamer, computador gamer]
     included_in_compliance_weighting: true
     compliance_segment_weight: 0.15
 
@@ -57,7 +57,40 @@ excluded_categories:
   - cases
   - cooling
 
-# Classification: deterministic rules from category → title → specifications.
+# Title phrases that mark a listing as non-computing when no positive type
+# alias is present in the title. Used to stop discovery-pollution mislabels
+# (e.g. ofertas cards classified as notebook solely from discovery slug).
+irrelevant_title_signals:
+  - smart tv
+  - smart-tv
+  - televisão
+  - televisao
+  - power bank
+  - powerbank
+  - carregador portátil
+  - carregador portatil
+  - suplemento
+  - vitamina
+  - whey
+  - creatina
+  - omega plus
+  - dark lab
+  - bicicleta
+  - spinning
+  - esteira
+  - elíptico
+  - eliptico
+  - smartphone
+  - celular
+  - iphone
+  - geladeira
+  - fogão
+  - fogao
+  - air fryer
+
+
+# Classification: deterministic rules from title/specs first, then category.
+# Discovery slugs (e.g. notebook_ofertas) must not force a product type.
 # If ambiguous → UNKNOWN; preserve raw category evidence.
 unknown_code: UNKNOWN
 

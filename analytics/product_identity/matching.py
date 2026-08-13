@@ -99,6 +99,9 @@ class ProductFingerprint:
     gpu: Optional[str] = None
     ram: Optional[str] = None
     storage: Optional[str] = None
+    gtin: Optional[str] = None
+    upc: Optional[str] = None
+    ean: Optional[str] = None
     normalized_title: str = ""
     title_tokens: frozenset[str] = field(default_factory=frozenset)
 
@@ -204,6 +207,7 @@ def build_fingerprint(product: Product, raw_payload: Optional[dict] = None) -> P
             }
         )
     )
+    ids = extract_gtin_upc_ean(raw)
     return ProductFingerprint(
         product_id=int(product.id),
         retailer_code=product.retailer_code,
@@ -219,7 +223,10 @@ def build_fingerprint(product: Product, raw_payload: Optional[dict] = None) -> P
         or _cpu_from_title(product.title),
         gpu=_spec_from_payload(raw, "gpu", "Placa de vídeo", "graphics"),
         ram=_spec_from_payload(raw, "ram", "Memória RAM", "memory"),
-        storage=_spec_from_payload(raw, "storage", "Armazenamento"),
+        storage=_spec_from_payload(raw, "storage", "Armazenamento", "ssd"),
+        gtin=ids.get("gtin"),
+        upc=ids.get("upc"),
+        ean=ids.get("ean"),
         normalized_title=normalize_text(product.title),
         title_tokens=_title_tokens(product.title),
     )
@@ -247,6 +254,45 @@ def _oem_equal(a: Optional[str], b: Optional[str]) -> bool:
     if not a or not b:
         return False
     return a.strip().lower() == b.strip().lower()
+
+
+def _identifier_equal(a: Optional[str], b: Optional[str]) -> bool:
+    if not a or not b:
+        return False
+    na = re.sub(r"\D", "", a)
+    nb = re.sub(r"\D", "", b)
+    if len(na) >= 8 and na == nb:
+        return True
+    return a.strip().upper() == b.strip().upper()
+
+
+def extract_gtin_upc_ean(raw_payload: Optional[dict] = None) -> dict[str, Optional[str]]:
+    """Pull GTIN/UPC/EAN from raw payload / specs when present (never invent)."""
+    out: dict[str, Optional[str]] = {"gtin": None, "upc": None, "ean": None}
+    if not isinstance(raw_payload, dict):
+        return out
+    for key in ("gtin", "upc", "ean", "barcode", "gtin14", "ean13"):
+        val = raw_payload.get(key)
+        if isinstance(val, str) and len(re.sub(r"\D", "", val)) >= 8:
+            canon = key if key in out else ("gtin" if "gtin" in key else key)
+            if canon in out and not out[canon]:
+                out[canon] = val.strip()
+    specs = raw_payload.get("specs")
+    if isinstance(specs, dict):
+        for sk, sv in specs.items():
+            if not isinstance(sv, str):
+                continue
+            sl = str(sk).lower()
+            digits = re.sub(r"\D", "", sv)
+            if len(digits) < 8:
+                continue
+            if "gtin" in sl and not out["gtin"]:
+                out["gtin"] = sv.strip()
+            elif "upc" in sl and not out["upc"]:
+                out["upc"] = sv.strip()
+            elif "ean" in sl and not out["ean"]:
+                out["ean"] = sv.strip()
+    return out
 
 
 def _model_equal(a: Optional[str], b: Optional[str]) -> bool:
@@ -316,19 +362,30 @@ def score_pair(
     details["ram_match"] = ram_ok
     details["storage_match"] = storage_ok
 
-    # 1) Exact manufacturer model + OEM → MATCHED
+    # Tier 1 — deterministic GTIN / UPC / EAN (exact identifier)
+    for label, left_id, right_id in (
+        ("gtin", left.gtin, right.gtin),
+        ("upc", left.upc, right.upc),
+        ("ean", left.ean, right.ean),
+    ):
+        if _identifier_equal(left_id, right_id):
+            details["identifier_match"] = label
+            details["identifier_value"] = left_id
+            return PairScore(0.99, f"exact_{label}", MATCHED, details)
+
+    # Tier 2 — exact manufacturer model / MPN (+ OEM when required)
     if model_ok and (oem_ok or not cfg.require_oem_for_matched):
         conf = 0.95 if oem_ok else 0.88
         if cpu_ok:
             conf = min(0.99, conf + 0.02)
         return PairScore(conf, "manufacturer_model", MATCHED, details)
 
-    # 2) OEM + model token overlap already handled above
-    # 3) OEM + strong title + CPU/RAM/storage support → MATCHED or POSSIBLE
+    # Tier 2b — OEM + strong title + CPU/RAM/storage support → MATCHED or POSSIBLE
     if oem_ok and title_sim >= 0.72 and (cpu_ok or (ram_ok and storage_ok)):
         conf = 0.84 if cpu_ok and ram_ok else 0.80
         return PairScore(conf, "oem_model_specs", MATCHED, details)
 
+    # Tier 3 — POSSIBLE only
     if oem_ok and title_sim >= 0.65 and cpu_ok:
         return PairScore(0.72, "oem_cpu_title", POSSIBLE_MATCH, details)
 

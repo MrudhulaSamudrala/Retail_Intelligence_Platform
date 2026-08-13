@@ -163,9 +163,26 @@ def evaluate_listing_eligibility(
     category_raw: Optional[str],
     availability: Optional[str] = None,
     config: SosUniverseConfig | None = None,
+    retailer_code: Optional[str] = None,
 ) -> tuple[bool, Optional[str]]:
     """Return (eligible, exclusion_reason)."""
     cfg = config or load_sos_universe_config()
+
+    # Explicit ML two-stage gate: hard-negatives / non-computing never enter SoS.
+    if (retailer_code or "").lower() == "mercadolibre":
+        from collector.retailers.mercadolibre.classification import (
+            EXCLUDED,
+            classify_mercadolibre_product,
+        )
+
+        classified = classify_mercadolibre_product(
+            title=title, category_raw=category_raw
+        )
+        if classified.status == EXCLUDED or classified.hard_negative:
+            return False, "accessory_or_ineligible_type"
+        if classified.product_type and classified.product_type != UNKNOWN:
+            product_type = classified.product_type
+
     if is_accessory_excluded(
         product_type=product_type, category_raw=category_raw, config=cfg
     ):
@@ -224,6 +241,7 @@ def build_eligible_universe(
             category_raw=row.get("category_raw"),
             availability=row.get("availability"),
             config=cfg,
+            retailer_code=str(retailer) if retailer else None,
         )
         if not ok:
             exclusions[reason or "non_gaming"] += 1

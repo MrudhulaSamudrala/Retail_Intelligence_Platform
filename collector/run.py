@@ -117,6 +117,7 @@ async def _legacy_product_run(retailer: str, limit: int) -> int:
         "successful": len(outcome.success),
         "failed": len(outcome.failed),
         "skipped_duplicates": len(outcome.skipped_duplicates),
+        "skipped_irrelevant": len(outcome.skipped_irrelevant),
         "bot_blocked": outcome.bot_blocked,
     }
     print(json.dumps(summary, indent=2))

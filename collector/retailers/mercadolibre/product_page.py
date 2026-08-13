@@ -208,17 +208,37 @@ def build_from_listing(
     extra_raw: Optional[dict[str, Any]] = None,
 ):
     """Normalize a product using listing-level evidence only."""
+    from collector.evidence import listing_only_evidence, map_block_reason
+    from collector.retailers.mercadolibre.classification import (
+        classify_mercadolibre_product,
+    )
+
     specs = specs_from_title(title)
     processor = pick_spec(specs, SPEC_ALIASES["processor"])
     gpu = pick_spec(specs, SPEC_ALIASES["gpu"])
     ram = pick_spec(specs, SPEC_ALIASES["ram"])
     storage = pick_spec(specs, SPEC_ALIASES["storage"])
+
+    discovery_name = None
+    if isinstance(extra_raw, dict):
+        discovery_name = extra_raw.get("discovery_name")
+    classified = classify_mercadolibre_product(
+        title=title,
+        category_raw=category_raw,
+        specs=specs,
+        discovery_name=str(discovery_name) if discovery_name else None,
+    )
+    evidence = listing_only_evidence(reason=map_block_reason(detail_page_status))
+
     raw = {
         "detail_page_status": detail_page_status,
         "source": "listing_card",
+        "evidence": evidence.to_dict(),
+        "classification": classified.to_dict(),
+        "title_raw_language": "pt-BR",
         **(extra_raw or {}),
     }
-    return build_normalized_product(
+    product = build_normalized_product(
         retailer_code=retailer_code,
         country_code=country_code,
         currency=currency,
@@ -237,6 +257,12 @@ def build_from_listing(
         specs=specs,
         raw_payload=raw,
     )
+    # Prefer two-stage classifier over discovery-slug-contaminated detect_product_type.
+    product.product_type = classified.product_type
+    product.raw_payload["classification"] = classified.to_dict()
+    product.raw_payload["evidence"] = evidence.to_dict()
+    return product
+
 
 
 async def parse_product_page(
@@ -295,7 +321,9 @@ async def parse_product_page(
                 price_text = str(offers.get("price"))
             availability_text = availability_text or str(offers.get("availability") or "")
 
-    specs = await extract_specs(page)
+    specs_from_dom = await extract_specs(page)
+    specs_table_present = bool(specs_from_dom)
+    specs = dict(specs_from_dom)
     for key, value in specs_from_title(title).items():
         specs.setdefault(key, value)
 
@@ -306,7 +334,19 @@ async def parse_product_page(
 
     sku = extract_mlb_id(url, title or "") or fallback_sku
 
-    return build_normalized_product(
+    from collector.evidence import product_page_evidence
+    from collector.retailers.mercadolibre.classification import (
+        classify_mercadolibre_product,
+    )
+
+    classified = classify_mercadolibre_product(
+        title=title,
+        category_raw=category_raw,
+        specs=specs,
+    )
+    evidence = product_page_evidence(specs_available=specs_table_present)
+
+    product = build_normalized_product(
         retailer_code=retailer_code,
         country_code=country_code,
         currency=currency,
@@ -323,5 +363,16 @@ async def parse_product_page(
         ram=ram,
         storage=storage,
         specs=specs,
-        raw_payload={"detail_page_status": "ok", "source": "product_page", "json_ld": bool(json_ld)},
+        raw_payload={
+            "detail_page_status": "ok",
+            "source": "product_page",
+            "json_ld": bool(json_ld),
+            "evidence": evidence.to_dict(),
+            "classification": classified.to_dict(),
+            "title_raw_language": "pt-BR",
+            "specs_table_present": specs_table_present,
+        },
     )
+    product.product_type = classified.product_type
+    return product
+

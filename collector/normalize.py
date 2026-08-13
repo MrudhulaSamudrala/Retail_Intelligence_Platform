@@ -22,6 +22,8 @@ __all__ = [
     "detect_brand",
     "detect_oem",
     "detect_product_type",
+    "title_is_irrelevant",
+    "title_has_irrelevant_signal",
     "parse_price",
     "normalize_availability",
     "build_normalized_product",
@@ -57,35 +59,84 @@ class NormalizedProduct:
     raw_payload: dict[str, Any] = field(default_factory=dict)
 
 
+def _match_type_in_blob(blob: str, types: list) -> Optional[str]:
+    if not blob.strip():
+        return None
+    lowered = blob.lower()
+    for item in types:
+        for alias in sorted(item.get("aliases", []), key=len, reverse=True):
+            if alias and alias.lower() in lowered:
+                return item["code"]
+    return None
+
+
+def title_has_irrelevant_signal(title: Optional[str]) -> bool:
+    """True when title contains a configured hard-negative phrase (TV, bike, …)."""
+    if not title or not title.strip():
+        return False
+    title_l = title.lower()
+    signals = load_product_types().get("irrelevant_title_signals") or []
+    for signal in signals:
+        token = str(signal).lower().strip()
+        if token and token in title_l:
+            return True
+    if re.search(r"\btvs?\b", title_l):
+        return True
+    return False
+
+
+def title_is_irrelevant(title: Optional[str]) -> bool:
+    """True when title is non-computing junk (hard negatives beat type aliases)."""
+    if not title or not title.strip():
+        return False
+    if title_has_irrelevant_signal(title):
+        return True
+    return False
+
+
+def _is_discovery_slug(category_raw: Optional[str]) -> bool:
+    """Ofertas / discovery entry names must not drive product_type alone."""
+    if not category_raw:
+        return False
+    c = category_raw.strip().lower()
+    return c.endswith("_ofertas") or c.endswith("_search") or "ofertas" in c
+
+
 def detect_product_type(
     *,
     category_raw: Optional[str] = None,
     title: Optional[str] = None,
     specs: Optional[dict[str, str]] = None,
 ) -> str:
+    """Classify product type from evidence.
+
+    Order:
+    1. Hard-negative title signals → UNKNOWN (blocks discovery-slug pollution
+       and weak alias collisions like ``computador`` on a spinning bike)
+    2. Title + specs aliases (primary evidence)
+    3. Category aliases (secondary; discovery slugs like ``notebook_ofertas`` ignored)
+    4. UNKNOWN
+    """
     cfg = load_product_types()
     types = cfg.get("product_types", [])
-    excluded = [e.lower() for e in cfg.get("excluded_categories", [])]
 
-    evidence_parts = [category_raw or "", title or ""]
-    if specs:
-        evidence_parts.extend(specs.values())
-    blob = " ".join(evidence_parts).lower()
-    if not blob.strip():
+    if title_has_irrelevant_signal(title):
         return UNKNOWN
 
-    for excl in excluded:
-        # Only treat as excluded when category strongly indicates accessory-only.
-        if category_raw and excl in category_raw.lower() and not any(
-            t["code"] in (category_raw or "").lower() for t in types
-        ):
-            # Soft signal — still try positive matches below.
-            pass
+    title_parts = [title or ""]
+    if specs:
+        title_parts.extend(str(v) for v in specs.values() if v)
+    title_blob = " ".join(title_parts)
 
-    for item in types:
-        for alias in sorted(item.get("aliases", []), key=len, reverse=True):
-            if alias.lower() in blob:
-                return item["code"]
+    matched = _match_type_in_blob(title_blob, types)
+    if matched:
+        return matched
+
+    if category_raw and not _is_discovery_slug(category_raw):
+        matched = _match_type_in_blob(category_raw, types)
+        if matched:
+            return matched
+
     return UNKNOWN
 
 
