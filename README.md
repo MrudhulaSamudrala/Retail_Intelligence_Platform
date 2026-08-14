@@ -14,21 +14,21 @@ BridgeAI provides an interactive Streamlit dashboard for monitoring competitive 
 <tr>
 <td align="center">
 <strong>Retail Homepage Presence</strong><br>
-<img src="assets/dashboard/Homepage_presence.png" width="450">
+<img src="assets/Dashboard/Homepage_presence.png" width="450">
 </td>
 <td align="center">
 <strong>Product Data Quality</strong><br>
-<img src="assets/dashboard/Product_data_quality.png" width="450">
+<img src="assets/Dashboard/Product_data_quality.png" width="450">
 </td>
 </tr>
 <tr>
 <td align="center">
 <strong>Share of Shelf</strong><br>
-<img src="assets/dashboard/Shelf_presence.png" width="450">
+<img src="assets/Dashboard/Shelf_presence.png" width="450">
 </td>
 <td align="center">
 <strong>Brand Compliance</strong><br>
-<img src="assets/dashboard/Brand_compliance.png" width="450">
+<img src="assets/Dashboard/Brand_compliance.png" width="450">
 </td>
 </tr>
 </table>
