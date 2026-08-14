@@ -156,6 +156,15 @@ def persist_search_run(
     return len(run.hits)
 
 
+def _optional_int(value: Any) -> int | None:
+    if value is None or value is False or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def persist_stratified_catalog_observations(
     session: Session,
     *,
@@ -170,20 +179,24 @@ def persist_stratified_catalog_observations(
 
     Does not create product identities. Native ``search_position`` is stored as
     ``position``; ``universe_slot`` is metadata only. Never deletes prior rows.
+    Excluded, duplicate, failed, unknown, and inaccessible slots are written.
     """
     observed = observed_at or datetime.now(timezone.utc)
     obs = ObservationRepository(session)
     products = ProductRepository(session)
     reports = {str(r.get("stratum") or ""): r for r in (strata_reports or [])}
     written = 0
-    for slot in slots:
+    for index, slot in enumerate(slots, start=1):
         stratum = slot.get("stratum")
         report = reports.get(str(stratum or "")) or {}
         status = stratum_observation_status(report)
-        query = str(slot.get("query") or report.get("query") or "")
-        position = int(slot.get("search_position") or 0)
-        if position <= 0:
-            continue
+        query = str(slot.get("query") or report.get("query") or stratum or "")
+        position = _optional_int(slot.get("search_position"))
+        if position is None or position < 1:
+            position = _optional_int(slot.get("position"))
+        if position is None or position < 1:
+            # Last resort: keep a row for every observed slot (do not drop SERP evidence).
+            position = index
         sku = (slot.get("sku") or slot.get("retailer_sku") or "") or None
         if sku:
             sku = str(sku).strip() or None
@@ -210,6 +223,8 @@ def persist_stratified_catalog_observations(
             "gaming": bool(slot.get("gaming")),
             "used_fallback": bool(slot.get("used_fallback") or report.get("used_fallback")),
             "product_type": slot.get("product_type"),
+            "search_position": position,
+            "collection_run_id": collection_run_id,
         }
         obs.add_search(
             collection_run_id=collection_run_id,
@@ -219,7 +234,7 @@ def persist_stratified_catalog_observations(
             country_code=country_code,
             keyword=query,
             position=position,
-            page_number=slot.get("search_page") or slot.get("page_number"),
+            page_number=_optional_int(slot.get("search_page") or slot.get("page_number")),
             retailer_sku=sku,
             title=slot.get("title"),
             brand=slot.get("brand"),
@@ -230,7 +245,9 @@ def persist_stratified_catalog_observations(
             selector=None,
             collection_status=status,
             search_url=slot.get("search_url") or report.get("search_url"),
-            pages_collected=report.get("pages_inspected") or report.get("pages_collected"),
+            pages_collected=_optional_int(
+                report.get("pages_inspected") or report.get("pages_collected")
+            ),
             stratum=str(stratum) if stratum else None,
             observation_source=SOURCE_STRATIFIED_CATALOG,
             details=details,

@@ -21,7 +21,7 @@ oems:
     aliases: [msi, micro-star]
   - code: apple
     name: Apple
-    aliases: [apple, macbook, imac, mac mini, mac studio, mac pro]
+    aliases: [apple, macbook, imac, ipad, iphone, mac mini, mac studio, mac pro]
 
 # OEM attribution hierarchy (implementation assumption):
 # 1. Explicit manufacturer field

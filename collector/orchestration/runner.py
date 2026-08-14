@@ -52,10 +52,13 @@ def _utcnow() -> datetime:
 def _trigger_source(explicit: Optional[str] = None) -> str:
     if explicit:
         return explicit
+    trigger = (os.getenv("COLLECTION_TRIGGER") or "").strip().lower()
+    if trigger in {"scheduled", "cron"}:
+        return "scheduled"
     if os.getenv("RENDER"):
-        return "render_cron"
-    if os.getenv("CRON") or os.getenv("COLLECTION_TRIGGER") == "cron":
-        return "cron"
+        return "scheduled"
+    if os.getenv("CRON"):
+        return "scheduled"
     return "cli"
 
 
@@ -151,9 +154,10 @@ class ProductionRunner:
                 return bool(self.retailers & PRODUCT_COMPONENTS) or (
                     "newegg" in self.retailers  # audits/badges currently Newegg-backed
                 )
-            # banners / search are retailer-level; allow if no product-only filter
-            # when --retailer used alone we still skip banners unless --all
-            return False
+            # Homepage banners and search visibility are independent of product
+            # collection. `--retailer` only narrows product collectors; `--all`
+            # still runs these steps. `--step` remains the explicit include list.
+            return True
         return True
 
     def validate_environment(self) -> dict[str, Any]:
@@ -200,7 +204,7 @@ class ProductionRunner:
             "config/retailers.yaml",
             "config/keywords.yaml",
             "config/orchestration.yaml",
-            "config/banners.yaml",
+            "config/search_visibility.yaml",
         ):
             path = root / name
             key = f"config:{name}"
@@ -253,10 +257,16 @@ class ProductionRunner:
         return checks
 
     def _start_run(self) -> CollectionRun:
+        from collector.universe_config import load_search_universe_config, STRATUM_BUDGETS
+
+        universe = load_search_universe_config()
         meta = {
             "trigger": self.trigger_source,
+            "source": self.trigger_source,
             "config_version": "orchestration_v1",
             "product_limit": self.product_limit,
+            "search_universe_size": universe.search_universe_size,
+            "stratum_budgets": dict(STRATUM_BUDGETS),
             "search_limit": self.search_limit,
             "retailers": sorted(self.retailers) if self.retailers else list(PRODUCT_COMPONENTS),
             "steps": sorted(self.steps_filter) if self.steps_filter else list(COMPONENTS),
@@ -311,11 +321,20 @@ class ProductionRunner:
             "component_finished",
             extra={
                 "event": "component_finished",
+                "timestamp": (result.completed_at or _utcnow()).isoformat(),
                 "run_id": self._run_row.id if self._run_row else None,
+                "retailer": result.component,
                 "component": result.component,
                 "status": result.status,
                 "records_processed": result.records_processed,
                 "error": result.error_message,
+                "exception": result.error_message,
+                "stratum": (result.details or {}).get("stratum")
+                or ((result.details or {}).get("universe") or {}).get("stop_stratum"),
+                "page": ((result.details or {}).get("universe") or {}).get("stop_page"),
+                "stop_reason": ((result.details or {}).get("universe") or {}).get(
+                    "stop_reason"
+                ),
             },
         )
 
@@ -371,9 +390,16 @@ class ProductionRunner:
                 "component_failed",
                 extra={
                     "event": "component_failed",
+                    "timestamp": started.isoformat(),
                     "run_id": self._run_row.id if self._run_row else None,
+                    "retailer": component,
                     "component": component,
+                    "status": STATUS_FAILED,
+                    "exception": f"{type(exc).__name__}: {exc}",
                     "error": str(exc),
+                    "stratum": None,
+                    "page": None,
+                    "stop_reason": str(exc),
                 },
             )
             result = StepResult(
@@ -414,7 +440,14 @@ class ProductionRunner:
             if not acquired:
                 logger.warning(
                     "run_skipped_concurrent",
-                    extra={"event": "run_skipped_concurrent"},
+                    extra={
+                        "event": "run_skipped_concurrent",
+                        "timestamp": started.isoformat(),
+                        "status": STATUS_SKIPPED,
+                        "trigger": self.trigger_source,
+                        "source": self.trigger_source,
+                        "run_id": None,
+                    },
                 )
                 print(
                     "PRODUCTION COLLECTION RUN SKIPPED\n"
@@ -519,7 +552,11 @@ class ProductionRunner:
                 # 3) Homepage banners (independent retailer-level)
                 banners = await self._execute_component(
                     "banners",
-                    lambda: run_banners_step(self.session, parent_run_id=run.id),
+                    lambda: run_banners_step(
+                        self.session,
+                        parent_run_id=run.id,
+                        retailer_codes=list(self.retailers) if self.retailers else None,
+                    ),
                 )
                 steps.append(banners)
 

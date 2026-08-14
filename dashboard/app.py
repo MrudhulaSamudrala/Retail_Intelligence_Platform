@@ -3,11 +3,6 @@
 Run from repo root:
 
     streamlit run dashboard/app.py
-
-Page modules live in ``dashboard/views/`` (not ``pages/``) so Streamlit does not
-auto-register them as multipage routes; navigation is owned by the sidebar.
-
-Read-only: re-queries PostgreSQL / analytics. Does not start collectors.
 """
 
 from __future__ import annotations
@@ -16,42 +11,36 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from dashboard.components.filters_ui import render_global_filters
-from dashboard.components.sidebar import render_sidebar
+from dashboard.components.header import render_header
 from dashboard.components.theme import inject_theme
 from dashboard.config import dashboard_meta
 from dashboard.db import check_connection, read_session
+from dashboard.filters import default_filters
+from dashboard.queries.collection import load_collection_status
 from dashboard.views import (
+    attributes,
+    badges,
+    banners,
     compliance,
-    insights,
     overview,
     pricing,
     share_of_shelf,
     sku_explorer,
     visibility,
 )
-from dashboard.queries.collection import filter_option_values, load_collection_status
-
 
 st.set_page_config(
     page_title=dashboard_meta().get("title", "Retail Competitive Intelligence"),
-    page_icon="📊",
+    page_icon="◇",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 inject_theme()
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def _cached_filter_options() -> dict[str, list[str]]:
-    with read_session() as session:
-        return filter_option_values(session)
-
-
-@st.cache_data(ttl=60, show_spinner=False)
 def _cached_collection_status_payload() -> dict:
-    """Cache a serializable snapshot; reconstruct light object in UI."""
     with read_session() as session:
         snap = load_collection_status(session)
         return {
@@ -109,30 +98,31 @@ def main() -> None:
 
     try:
         collection = _collection_from_payload(_cached_collection_status_payload())
-        options = _cached_filter_options()
     except Exception as exc:  # noqa: BLE001
         st.error(f"Failed to load dashboard metadata: {exc}")
         st.stop()
 
-    page = render_sidebar(collection)
-    filters = render_global_filters(options)
-
     if "analytics_refreshed_at" not in st.session_state:
         st.session_state["analytics_refreshed_at"] = datetime.now(timezone.utc)
     refreshed_at = st.session_state["analytics_refreshed_at"]
-
-    renderers = {
-        "Executive Overview": overview.render,
-        "Pricing & Promotions": pricing.render,
-        "Share of Shelf": share_of_shelf.render,
-        "Brand Compliance": compliance.render,
-        "Visibility": visibility.render,
-        "SKU Explorer": sku_explorer.render,
-        "Insights": insights.render,
-    }
+    filters = render_header(
+        page_title="Competitive Intelligence",
+        subtitle="Shelf presence, search visibility, pricing, promotions, and brand presentation across tracked retailers.",
+        collection=collection,
+        filters=default_filters(),
+        analytics_refreshed_at=refreshed_at,
+    )
 
     with read_session() as session:
-        renderers[page](session, filters, collection, refreshed_at)
+        overview.render(session, filters, collection, refreshed_at)
+        share_of_shelf.render(session, filters, collection, refreshed_at)
+        visibility.render(session, filters)
+        pricing.render(session, filters, collection, refreshed_at)
+        compliance.render(session, filters, collection, refreshed_at)
+        banners.render(session, filters, collection, refreshed_at)
+        attributes.render(session, filters, collection, refreshed_at)
+        badges.render(session, filters, collection, refreshed_at)
+        sku_explorer.render(session, filters, collection, refreshed_at)
 
 
 if __name__ == "__main__":

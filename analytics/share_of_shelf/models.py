@@ -18,7 +18,10 @@ class SosScope:
     oem: Optional[str] = None
     brand: Optional[str] = None
     as_of: Optional[datetime] = None
-    """If set, use latest product_snapshots observed at or before this timestamp."""
+    """Used only when ``current_universe`` is False (explicit historical SoS)."""
+    current_universe: bool = True
+    """If True, candidates come from the latest stratified collection batch
+    per retailer/country. Historical products and keyword searches are omitted."""
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,9 @@ class SosSnapshot:
     shares: list[SosShare] = field(default_factory=list)
     exclusions: SosExclusionBreakdown = field(default_factory=SosExclusionBreakdown)
     as_of: Optional[datetime] = None
+    collection_status: str = "NO_DATA"
+    """COMPLETE | PARTIAL | NO_DATA. Fallback/ofertas never upgrades to COMPLETE."""
+    collection_run_ids: dict[tuple[str, str], int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

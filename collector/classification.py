@@ -75,6 +75,14 @@ _BRAND_OTHER_SOC: list[re.Pattern[str]] = [
     re.compile(r"\brockchip\b", re.I),
 ]
 _GPU_OTHER_VENDOR = re.compile(r"\b(nvidia|geforce)\b", re.I)
+# Software / accessory phrases must not count as Apple OEM evidence.
+_OEM_APPLE_NOISE = re.compile(
+    r"\b("
+    r"office\s*365|microsoft\s+office|apple\s*care|applecare|"
+    r"apple\s+music|apple\s+tv\+|itunes"
+    r")\b",
+    re.I,
+)
 _AMD_GPU_EVIDENCE = re.compile(
     r"\b(amd\s+radeon|radeon\s+rx|radeon\b|gpu\s+series:\s*amd|"
     r"chipset\s+manufacturer:\s*amd)\b",
@@ -310,10 +318,11 @@ def _oem_alias_table() -> list[tuple[str, list[str]]]:
 def _find_oems_in_text(text: str) -> list[str]:
     if not text:
         return []
+    cleaned = _OEM_APPLE_NOISE.sub(" ", text)
     found: list[str] = []
     for name, aliases in _oem_alias_table():
         for alias in aliases:
-            if _token_boundary_match(alias, text):
+            if _token_boundary_match(alias, cleaned):
                 if name not in found:
                     found.append(name)
                 break

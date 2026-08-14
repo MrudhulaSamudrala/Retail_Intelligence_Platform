@@ -5,14 +5,16 @@
 BridgeAI production collection is a **one-shot process**:
 
 ```bash
-python -m collector.run --all
+python -m collector.run --all --scheduled
 ```
 
 It orchestrates existing collectors (products, audits, badges, pricing snapshots,
 homepage banners, search visibility), writes a `collection_runs` row plus
 `collection_run_steps`, then **exits**. There is **no** in-process scheduler loop.
 
-Scheduling belongs to the host — recommended: **Render Cron Job**.
+Scheduling belongs to the host — **Render Cron Job** or **Windows Task Scheduler**.
+Use `--scheduled` (or `COLLECTION_TRIGGER=scheduled`) so run metadata records
+`source=scheduled`. Manual runs remain `python -m collector.run --all` (`source=cli`).
 
 ---
 
@@ -93,7 +95,7 @@ Update Render to the expression above when enabling the production job.
 2. **Command:**
 
    ```bash
-   python -m collector.run --all
+   python -m collector.run --all --scheduled
    ```
 
 3. **Schedule:** `0 8,14,20 * * *` (UTC).
@@ -177,3 +179,23 @@ python -m collector.run --all
 ```
 
 Do not configure production Render credentials from this documentation automatically.
+
+---
+
+## Windows Task Scheduler (manual enablement)
+
+The repository does **not** install a Windows service or OS task. After code is
+deployed, register three daily triggers (or one task with three triggers) yourself:
+
+| Field | Value |
+|-------|--------|
+| Program | `python` (or full path to the venv interpreter) |
+| Arguments | `-m collector.run --all --scheduled` |
+| Start in | repository root (`BridgeAI`) |
+| Triggers | Daily at **08:00**, **14:00**, and **20:00 UTC** |
+| Alternative | `powershell -File scripts\run_scheduled_collection.ps1` |
+
+If the machine clock is not UTC, convert those wall times or set the task to
+use UTC. Project config (`config/retailers.yaml` → `scheduling.timezone`) is **UTC**.
+
+Overlapping ticks are skipped by the existing advisory lock / RUNNING-run check.

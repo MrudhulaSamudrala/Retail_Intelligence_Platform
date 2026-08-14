@@ -4,7 +4,7 @@
 
 A production-style retail competitive intelligence platform that compares how major computing brands are priced, promoted, displayed, and positioned across tracked retail platforms.
 
-> **Foundation phase status:** project structure, configuration, database models, and documentation are in place. Scrapers, dashboard UI, schedulers, and deployment are **not** implemented yet.
+> Collection is orchestrated by `python -m collector.run --all`. Host scheduling (3× daily UTC) is documented in `docs/deployment.md`.
 
 ---
 

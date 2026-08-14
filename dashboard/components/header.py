@@ -1,15 +1,23 @@
-"""Global page header with freshness indicators."""
+"""Global page header."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from typing import Optional
 
 import streamlit as st
 
+from dashboard.components.layout import pill_kind_for_status, status_pill
 from dashboard.filters import DashboardFilters
 from dashboard.queries.collection import CollectionStatusSnapshot
 from dashboard.utils.format import fmt_ts
+
+
+def _to_dt(d: Optional[date], end: bool = False) -> Optional[datetime]:
+    if d is None:
+        return None
+    t = time(23, 59, 59) if end else time(0, 0, 0)
+    return datetime.combine(d, t, tzinfo=timezone.utc)
 
 
 def render_header(
@@ -19,45 +27,63 @@ def render_header(
     collection: CollectionStatusSnapshot,
     filters: DashboardFilters,
     analytics_refreshed_at: Optional[datetime],
-) -> None:
-    left, right = st.columns([3, 2])
-    with left:
-        st.markdown("### Retail Competitive Intelligence")
-        st.markdown(f"## {page_title}")
-        st.caption(subtitle)
-    with right:
-        if collection.is_partial:
-            badge_class, badge_text = "ci-badge-partial", "PARTIAL DATA"
-        elif collection.is_live:
-            badge_class, badge_text = "ci-badge-live", "Live / Latest successful collection"
-        elif collection.is_stale:
-            badge_class, badge_text = "ci-badge-stale", "Stale data"
-        else:
-            badge_class, badge_text = "ci-badge-info", collection.freshness_label
+) -> DashboardFilters:
+    if collection.latest_status in {"FAILED", "ERROR"}:
+        badge_kind, badge_text = "bad", "Collection failed"
+    elif collection.is_stale:
+        badge_kind, badge_text = "warn", "Stale collection"
+    elif collection.latest_run_id:
+        badge_kind, badge_text = "ok", "Latest collection"
+    else:
+        badge_kind, badge_text = "muted", "No collection yet"
 
+    left, right = st.columns([3.2, 2.2])
+    with left:
         st.markdown(
-            f'<span class="ci-badge {badge_class}">{badge_text}</span>',
+            """
+            <div class="ci-kicker">BRIDGEAI · Competitive Retail Analytics</div>
+            """,
             unsafe_allow_html=True,
         )
-        st.caption(
-            f"Last successful collection: **{fmt_ts(collection.last_successful_at)}**  \n"
-            f"Latest run status: **{collection.latest_status}**  \n"
-            f"Retailer(s): **{', '.join(collection.retailers) or '—'}**  \n"
-            f"Selected range: **{filters.label_summary()}**"
+        st.markdown(f'<h1 class="ci-title">{page_title}</h1>', unsafe_allow_html=True)
+        st.markdown(f'<p class="ci-subtitle">{subtitle}</p>', unsafe_allow_html=True)
+        st.markdown(
+            f"""
+            {status_pill(badge_text, kind=badge_kind)}
+            <span class="ci-note" style="display:inline;margin-left:0.6rem;">
+            Latest collection: {fmt_ts(collection.latest_completed_at or collection.latest_started_at)}
+            · Last successful collection: {fmt_ts(collection.last_successful_at)}
+            </span>
+            """,
+            unsafe_allow_html=True,
         )
-        st.caption(
-            f"Analytics refresh: {fmt_ts(analytics_refreshed_at)} "
-            "(re-query only — does not run collectors)"
-        )
+    with right:
+        c1, c2, c3 = st.columns([1.1, 1.5, 1.1])
+        with c1:
+            if st.button("Refresh", use_container_width=True):
+                st.cache_data.clear()
+                st.session_state["analytics_refreshed_at"] = datetime.now(timezone.utc)
+                st.rerun()
+        with c2:
+            default_range = (
+                filters.date_from.date() if filters.date_from else date.today(),
+                filters.date_to.date() if filters.date_to else date.today(),
+            )
+            dates = st.date_input("Collection Period", value=default_range, key="collection_period")
+        with c3:
+            st.selectbox(
+                "Time Zone",
+                ["UTC", "India Standard Time", "Local"],
+                key="display_timezone",
+            )
 
-    c1, c2, _ = st.columns([1, 1, 4])
-    with c1:
-        if st.button("Refresh analytics", use_container_width=True):
-            st.cache_data.clear()
-            st.session_state["analytics_refreshed_at"] = datetime.now(timezone.utc)
-            st.rerun()
-    with c2:
-        if st.button("Clear filters", use_container_width=True):
-            st.session_state["filters_clear"] = True
-            st.rerun()
-    st.divider()
+    date_from = filters.date_from
+    date_to = filters.date_to
+    if isinstance(dates, tuple) and len(dates) == 2:
+        date_from, date_to = _to_dt(dates[0], False), _to_dt(dates[1], True)
+    elif isinstance(dates, date):
+        date_from, date_to = _to_dt(dates, False), _to_dt(dates, True)
+
+    from dataclasses import replace
+
+    return replace(filters, date_from=date_from, date_to=date_to)

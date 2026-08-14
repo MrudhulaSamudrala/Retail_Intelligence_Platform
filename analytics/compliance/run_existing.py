@@ -27,33 +27,15 @@ from analytics.compliance import (
     load_compliance_score_config,
 )
 from analytics.compliance.config import CHECK_CODES
+from analytics.compliance.queries import load_audit_rows
 from database.connection import session_scope
 from database.models import Product, RetailerAudit
-from database.repositories import ObservationRepository
 
 
 def _pct(value: Optional[float]) -> str:
     if value is None:
         return "n/a"
     return f"{value * 100:.2f}%"
-
-
-def load_audit_rows(session) -> list[AuditScoreRow]:
-    """Map ``retailer_audits`` ORM rows into scoring inputs."""
-    audits = ObservationRepository(session).list_audits()
-    rows: list[AuditScoreRow] = []
-    for audit in audits:
-        rows.append(
-            AuditScoreRow(
-                brand=audit.brand,
-                retailer_code=audit.retailer_code,
-                country_code=audit.country_code,
-                product_type=audit.product_type,
-                check_code=audit.check_code,
-                result=audit.result,
-            )
-        )
-    return rows
 
 
 def collect_validation_stats(session, rows: list[AuditScoreRow]) -> dict:
@@ -369,10 +351,12 @@ def main() -> int:
         print("  python -m analytics.compliance.run_existing")
         print()
         print("API:")
-        print("  ObservationRepository(session).list_audits()")
-        print("  -> AuditScoreRow(...)")
+        print("  analytics.compliance.queries.load_audit_rows(session)")
+        print("  -> latest eligible (product_id, check_code) in latest audit batch")
         print("  -> compute_compliance_score / compute_brand_scores /")
         print("     compute_retailer_scores / compute_country_scores")
+        print("  Note: Newegg stratified collection currently lacks persisted")
+        print("  S1–P5 audit rows; this command does not fabricate them.")
         print(f"  config strategy: {cfg.strategy}")
         print(f"  segment_weights: {cfg.segment_weights}")
         print()

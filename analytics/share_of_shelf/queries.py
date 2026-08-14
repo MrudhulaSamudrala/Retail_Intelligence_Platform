@@ -23,14 +23,22 @@ from analytics.share_of_shelf.universe import (
     build_eligible_universe,
     load_sos_universe_config,
 )
-from database.models import Product, ProductSnapshot
+from collector.search.persist import SOURCE_STRATIFIED_CATALOG
+from database.models import CollectionRun, Product, ProductSnapshot, SearchObservation
 
-# Reproducible SQL sketch (Postgres) for the live products universe:
+# Reproducible SQL sketch (Postgres) for the current stratified SoS universe:
 SQL_CANDIDATE_PRODUCTS = """
-SELECT id AS product_id, retailer_code, country_code, retailer_sku,
-       brand, oem, product_type, title, category_raw
-FROM products
-WHERE is_active = TRUE
+-- Latest stratified collection_run per (retailer_code, country_code), then:
+SELECT DISTINCT ON (p.retailer_code, p.country_code, p.retailer_sku)
+       p.id AS product_id, p.retailer_code, p.country_code, p.retailer_sku,
+       COALESCE(s.brand, p.brand) AS brand,
+       COALESCE(s.oem, p.oem) AS oem,
+       COALESCE(s.product_type, p.product_type) AS product_type,
+       COALESCE(s.title, p.title) AS title,
+       COALESCE(s.category_raw, p.category_raw) AS category_raw
+FROM product_snapshots s
+JOIN products p ON p.id = s.product_id
+WHERE s.collection_run_id = :latest_stratified_run_id
 """
 
 
@@ -62,6 +70,197 @@ def _apply_scope_to_product_query(stmt: Any, scope: SosScope) -> Any:
     if scope.brand is not None:
         stmt = stmt.where(Product.brand == scope.brand)
     return stmt
+
+
+def _universe_meta(run: CollectionRun) -> dict[str, Any]:
+    meta = run.run_metadata if isinstance(run.run_metadata, dict) else {}
+    uni = meta.get("universe") if isinstance(meta, dict) else {}
+    return uni if isinstance(uni, dict) else {}
+
+
+def _run_has_strata_metadata(run: CollectionRun) -> bool:
+    strata = _universe_meta(run).get("strata")
+    if isinstance(strata, list) and len(strata) > 0:
+        return True
+    if isinstance(strata, dict) and len(strata) > 0:
+        return True
+    return False
+
+
+def _stratified_observation_run_ids(session: Session) -> set[int]:
+    rows = session.scalars(
+        select(SearchObservation.collection_run_id)
+        .where(SearchObservation.observation_source == SOURCE_STRATIFIED_CATALOG)
+        .where(SearchObservation.collection_run_id.is_not(None))
+        .distinct()
+    ).all()
+    return {int(rid) for rid in rows if rid is not None}
+
+
+def _run_is_stratified(run: CollectionRun, *, stratified_obs_run_ids: set[int]) -> bool:
+    if _run_has_strata_metadata(run):
+        return True
+    return int(run.id) in stratified_obs_run_ids
+
+
+def _completeness_from_run(run: CollectionRun) -> str:
+    uni = _universe_meta(run)
+    if uni.get("used_fallback"):
+        return "PARTIAL"
+    strata = uni.get("strata")
+    items: list[Any]
+    if isinstance(strata, list):
+        items = strata
+    elif isinstance(strata, dict):
+        items = list(strata.values())
+    else:
+        items = []
+    for item in items:
+        if isinstance(item, dict) and item.get("used_fallback"):
+            return "PARTIAL"
+        if isinstance(item, dict) and str(item.get("completeness") or "") == "PARTIAL":
+            return "PARTIAL"
+        if isinstance(item, dict) and str(item.get("search_url") or "").find("ofertas") >= 0:
+            return "PARTIAL"
+    status = str(uni.get("completeness") or "").upper()
+    if status == "COMPLETE":
+        return "COMPLETE"
+    if status in {"PARTIAL", "FAILED", "BLOCKED"}:
+        return "PARTIAL"
+    run_status = (run.status or "").lower()
+    if run_status in {"partial", "partial_success"}:
+        return "PARTIAL"
+    if run_status in {"completed", "success"}:
+        # Ranked COMPLETE only when metadata says so; otherwise PARTIAL.
+        if status == "COMPLETE":
+            return "COMPLETE"
+        if _run_has_strata_metadata(run) and status == "":
+            return "PARTIAL"
+        return "PARTIAL"
+    return "PARTIAL"
+
+
+def _combine_collection_status(statuses: list[str]) -> str:
+    if not statuses:
+        return "NO_DATA"
+    unique = set(statuses)
+    if unique == {"COMPLETE"}:
+        return "COMPLETE"
+    if "PARTIAL" in unique or "FAILED" in unique or "BLOCKED" in unique:
+        return "PARTIAL"
+    if "COMPLETE" in unique:
+        return "PARTIAL"
+    return "NO_DATA"
+
+
+def _latest_stratified_runs(
+    session: Session, scope: SosScope
+) -> dict[tuple[str, str], CollectionRun]:
+    """Latest stratified catalog collection per retailer/country."""
+    stmt = select(CollectionRun)
+    if scope.retailer_code is not None:
+        stmt = stmt.where(CollectionRun.retailer_code == scope.retailer_code)
+    if scope.country_code is not None:
+        stmt = stmt.where(CollectionRun.country_code == scope.country_code)
+    stmt = stmt.order_by(CollectionRun.started_at.desc(), CollectionRun.id.desc())
+    stratified_obs = _stratified_observation_run_ids(session)
+    latest: dict[tuple[str, str], CollectionRun] = {}
+    for run in session.scalars(stmt).all():
+        if not _run_is_stratified(run, stratified_obs_run_ids=stratified_obs):
+            continue
+        key = (run.retailer_code, run.country_code)
+        if key not in latest:
+            latest[key] = run
+    return latest
+
+
+def _candidate_from_product(
+    product: Product,
+    *,
+    brand: Optional[str] = None,
+    oem: Optional[str] = None,
+    product_type: Optional[str] = None,
+    title: Optional[str] = None,
+    category_raw: Optional[str] = None,
+    availability: Optional[str] = None,
+) -> dict[str, Any]:
+    return {
+        "product_id": product.id,
+        "retailer_code": product.retailer_code,
+        "country_code": product.country_code,
+        "retailer_sku": product.retailer_sku,
+        "brand": brand if brand is not None else product.brand,
+        "oem": oem if oem is not None else product.oem,
+        "product_type": product_type if product_type is not None else product.product_type,
+        "title": title if title is not None else product.title,
+        "category_raw": category_raw if category_raw is not None else product.category_raw,
+        "availability": availability,
+    }
+
+
+def _load_candidates_from_current_batch(
+    session: Session, scope: SosScope
+) -> tuple[list[dict[str, Any]], int, dict[tuple[str, str], CollectionRun]]:
+    """Products observed in the latest stratified collection; no historical padding."""
+    runs = _latest_stratified_runs(session, scope)
+    if not runs:
+        return [], 0, {}
+
+    run_ids = [run.id for run in runs.values()]
+    seen: set[tuple[str, str, str]] = set()
+    candidates: list[dict[str, Any]] = []
+
+    snap_stmt = (
+        select(ProductSnapshot, Product)
+        .join(Product, Product.id == ProductSnapshot.product_id)
+        .where(ProductSnapshot.collection_run_id.in_(run_ids))
+    )
+    snap_stmt = _apply_scope_to_product_query(snap_stmt, scope)
+    snap_stmt = snap_stmt.order_by(
+        ProductSnapshot.observed_at.desc(), ProductSnapshot.id.desc()
+    )
+    for snap, product in session.execute(snap_stmt).all():
+        key = (product.retailer_code, product.country_code, product.retailer_sku)
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(
+            _candidate_from_product(
+                product,
+                brand=snap.brand or product.brand,
+                oem=snap.oem or product.oem,
+                product_type=snap.product_type or product.product_type,
+                title=snap.title or product.title,
+                category_raw=snap.category_raw or product.category_raw,
+                availability=snap.availability,
+            )
+        )
+
+    obs_stmt = (
+        select(SearchObservation, Product)
+        .join(Product, Product.id == SearchObservation.product_id)
+        .where(SearchObservation.collection_run_id.in_(run_ids))
+        .where(SearchObservation.observation_source == SOURCE_STRATIFIED_CATALOG)
+        .where(SearchObservation.product_id.is_not(None))
+    )
+    if scope.retailer_code is not None:
+        obs_stmt = obs_stmt.where(Product.retailer_code == scope.retailer_code)
+    if scope.country_code is not None:
+        obs_stmt = obs_stmt.where(Product.country_code == scope.country_code)
+    if scope.product_type is not None:
+        obs_stmt = obs_stmt.where(Product.product_type == scope.product_type)
+    if scope.oem is not None:
+        obs_stmt = obs_stmt.where(Product.oem == scope.oem)
+    if scope.brand is not None:
+        obs_stmt = obs_stmt.where(Product.brand == scope.brand)
+    for _obs, product in session.execute(obs_stmt).all():
+        key = (product.retailer_code, product.country_code, product.retailer_sku)
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(_candidate_from_product(product))
+
+    return candidates, 0, runs
 
 
 def _load_candidates_from_products(
@@ -167,11 +366,16 @@ def load_eligible_listings(
     *,
     scope: SosScope | None = None,
     config: SosUniverseConfig | None = None,
-) -> tuple[list[EligibleListing], SosExclusionBreakdown]:
+) -> tuple[list[EligibleListing], SosExclusionBreakdown, dict[tuple[str, str], CollectionRun]]:
     """Build the eligible SoS universe for the given scope from the database."""
     scope = scope or SosScope()
     cfg = config or load_sos_universe_config()
-    if scope.as_of is not None:
+    batch_runs: dict[tuple[str, str], CollectionRun] = {}
+    if scope.current_universe:
+        candidates, scope_filtered, batch_runs = _load_candidates_from_current_batch(
+            session, scope
+        )
+    elif scope.as_of is not None:
         candidates, scope_filtered = _load_candidates_as_of(session, scope)
     else:
         candidates, scope_filtered = _load_candidates_from_products(session, scope)
@@ -187,7 +391,7 @@ def load_eligible_listings(
         scope_filtered=scope_filtered,
         inactive=0,
     )
-    return eligible, exclusions
+    return eligible, exclusions, batch_runs
 
 
 def _aggregate_shares(
@@ -234,8 +438,17 @@ def share_of_shelf(
     """Compute Share of Shelf for ``brand`` or ``oem`` over the eligible universe."""
     scope = scope or SosScope()
     cfg = config or load_sos_universe_config()
-    listings, exclusions = load_eligible_listings(session, scope=scope, config=cfg)
+    listings, exclusions, batch_runs = load_eligible_listings(
+        session, scope=scope, config=cfg
+    )
     shares = _aggregate_shares(listings, dimension=dimension)
+    if scope.current_universe:
+        statuses = [_completeness_from_run(run) for run in batch_runs.values()]
+        collection_status = _combine_collection_status(statuses)
+        run_ids = {key: int(run.id) for key, run in batch_runs.items()}
+    else:
+        collection_status = "COMPLETE" if listings else "NO_DATA"
+        run_ids = {}
     return SosSnapshot(
         scope=scope,
         dimension=dimension,
@@ -244,6 +457,8 @@ def share_of_shelf(
         shares=shares,
         exclusions=exclusions,
         as_of=scope.as_of,
+        collection_status=collection_status,
+        collection_run_ids=run_ids,
     )
 
 
@@ -305,6 +520,7 @@ def share_of_shelf_trends(
             oem=scope.oem,
             brand=scope.brand,
             as_of=as_of,
+            current_universe=False,
         )
         snap = share_of_shelf(
             session, dimension=dimension, scope=day_scope, config=cfg

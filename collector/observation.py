@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from collector.normalize import NormalizedProduct
+from collector.normalize import NormalizedProduct, evidence_category_raw
 from collector.retailers.mercadolibre.classification import (
     EXCLUDED,
     OTHER_TYPE,
@@ -52,7 +52,7 @@ def classify_observed_product(
         category_raw = category_raw or product.category_raw
     return classify_mercadolibre_product(
         title=title,
-        category_raw=category_raw,
+        category_raw=evidence_category_raw(category_raw),
         specs=specs,
     )
 
@@ -73,26 +73,14 @@ def observation_bucket(
         return STATUS_DUPLICATE
     if product is None:
         return STATUS_UNKNOWN
-    raw = product.raw_payload or {}
-    classification = raw.get("classification") if isinstance(raw.get("classification"), dict) else {}
-    status = str(classification.get("status") or "")
-    ptype = str(
-        classification.get("product_type") or product.product_type or ""
-    ).strip().lower()
-    if status == EXCLUDED or ptype == OTHER_TYPE:
-        return STATUS_EXCLUDED
     result = classify_observed_product(product)
-    if classification:
-        result.status = status or result.status
-        result.product_type = str(classification.get("product_type") or result.product_type)
-        result.gaming = bool(classification.get("gaming", result.gaming))
-        result.hard_negative = bool(classification.get("hard_negative", result.hard_negative))
+    ptype = str(result.product_type or "").strip().lower()
+    if result.status == EXCLUDED or ptype == OTHER_TYPE or result.hard_negative:
+        return STATUS_EXCLUDED
     if is_collection_eligible(result) or (
         result.status == VALID and ptype in SUPPORTED_PRODUCT_TYPES
     ):
         return STATUS_VALID
-    if result.status == EXCLUDED:
-        return STATUS_EXCLUDED
     return STATUS_UNKNOWN
 
 
@@ -180,39 +168,50 @@ def run_status_from_completeness(completeness: str) -> str:
 
 
 def is_eligible_gaming(product: NormalizedProduct) -> bool:
-    raw = product.raw_payload or {}
-    classification = raw.get("classification") if isinstance(raw.get("classification"), dict) else {}
-    gaming = classification.get("gaming")
-    if gaming is None:
-        gaming = str(raw.get("gaming_relevance") or "").lower() == "gaming"
-    if not gaming:
+    result = classify_observed_product(product)
+    if not result.gaming or result.status == EXCLUDED or result.hard_negative:
+        return False
+    if str(result.product_type or "").strip().lower() == OTHER_TYPE:
         return False
     return observation_bucket(product) == STATUS_VALID
 
 
-def attach_observation_classification(product: NormalizedProduct) -> NormalizedProduct:
-    """Stamp classification onto raw_payload without dropping existing evidence."""
+def apply_live_classification(product: NormalizedProduct) -> NormalizedProduct:
+    """Overwrite product type/brand/OEM from evidence. Stratum is metadata only."""
+    from collector.classification import classify_product
+
     raw = dict(product.raw_payload or {})
     specs = raw.get("specs") if isinstance(raw.get("specs"), dict) else None
     result = classify_observed_product(product, specs=specs)
-    existing = raw.get("classification") if isinstance(raw.get("classification"), dict) else {}
-    if existing.get("status"):
-        merged = dict(existing)
-        merged.setdefault("product_type", result.product_type)
-        merged.setdefault("gaming", result.gaming)
-        raw["classification"] = merged
-    else:
-        raw["classification"] = result.to_dict()
-        if result.product_type == OTHER_TYPE or (
-            result.status == EXCLUDED and (not product.product_type or product.product_type == "UNKNOWN")
-        ):
-            product.product_type = result.product_type
-        elif result.product_type in SUPPORTED_PRODUCT_TYPES and (
-            not product.product_type or product.product_type == "UNKNOWN"
-        ):
-            product.product_type = result.product_type
+    identity = classify_product(
+        title=product.title,
+        processor=product.processor,
+        manufacturer=raw.get("manufacturer") if isinstance(raw.get("manufacturer"), str) else None,
+        specifications=specs,
+        product_type=result.product_type,
+        gpu=product.gpu,
+    )
+    product.product_type = result.product_type
+    product.brand = identity.brand
+    product.oem = identity.oem
+    clf = result.to_dict()
+    clf["brand"] = identity.brand
+    clf["oem"] = identity.oem
+    clf["brand_reason"] = identity.brand_reason
+    clf["oem_reason"] = identity.oem_reason
+    clf["stratum_ignored_for_type"] = True
+    raw["classification"] = clf
+    raw["brand_reason"] = identity.brand_reason
+    raw["oem_reason"] = identity.oem_reason
+    if result.reasons:
+        raw["product_type_reason"] = result.reasons[0]
     product.raw_payload = raw
     return product
+
+
+def attach_observation_classification(product: NormalizedProduct) -> NormalizedProduct:
+    """Stamp live classifier output onto the product used for persistence."""
+    return apply_live_classification(product)
 
 
 @dataclass

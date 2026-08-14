@@ -70,6 +70,9 @@ class CollectionPersister:
         observed_at: datetime | None = None,
     ) -> int:
         """Upsert identity and append historical observations. Returns product id."""
+        from collector.observation import apply_live_classification
+
+        apply_live_classification(product)
         observed = observed_at or datetime.now(timezone.utc)
         row = self.products.upsert_identity(
             retailer_code=product.retailer_code,

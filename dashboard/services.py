@@ -42,7 +42,7 @@ from analytics import (
     share_of_voice,
     share_of_voice_trends,
 )
-from analytics.compliance.run_existing import load_audit_rows
+from analytics.compliance.queries import load_audit_rows
 from analytics.product_identity import MATCHED as MATCHED_STATUS
 from analytics.product_identity.queries import crosswalk_summary, retailer_product_counts
 
@@ -64,6 +64,7 @@ from dashboard.queries.collection import (
     filter_option_values,
     load_collection_status,
 )
+from dashboard.presentation import CoverageDisplay, format_search_coverage
 from dashboard.utils.format import fmt_money, fmt_pct
 from dashboard.utils.semantics import DataState, MetricValue
 
@@ -144,7 +145,12 @@ def _count_price_changes(session: Session, filters: DashboardFilters) -> int:
 
 
 def _compliance_for_filters(session: Session, filters: DashboardFilters):
-    rows = [r for r in load_audit_rows(session) if audit_row_matches(r, filters)]
+    """Current-universe audits. Date range is not part of the compliance loader."""
+    rows = [
+        r
+        for r in load_audit_rows(session, current_universe=True)
+        if audit_row_matches(r, filters)
+    ]
     cfg = load_compliance_score_config()
     score = compute_compliance_score(rows, config=cfg)
     return rows, score
@@ -703,10 +709,62 @@ def top_movers(session: Session, filters: DashboardFilters, *, mode: str = "bran
     return movers[:15]
 
 
+def retailer_search_coverage(session: Session, retailer_code: str) -> CoverageDisplay:
+    """Compact search-coverage summary from existing Share of Voice snapshot + stratum budgets."""
+    from collector.universe_config import strata_for
+
+    snap = share_of_voice(session, scope=to_sov_scope(DashboardFilters(retailer_code=retailer_code)))
+    specs = strata_for(retailer_code)
+    budget = sum(int(spec.budget) for spec in specs) if specs else None
+    observed = snap.total_observations
+    basis = snap.collection_basis or "empty"
+    if observed <= 0 and basis in {"empty", "NO_DATA"}:
+        observed_n: Optional[int] = None
+    else:
+        observed_n = observed
+    headline, status, detail = format_search_coverage(
+        observed=observed_n,
+        budget=budget,
+        basis=basis,
+    )
+    return CoverageDisplay(
+        retailer_code=retailer_code,
+        observed=observed_n,
+        budget=budget,
+        basis=basis,
+        status=status,
+        headline=headline,
+        detail=detail,
+    )
+
+
+def available_currencies(session: Session, filters: DashboardFilters) -> list[str]:
+    scope = to_pricing_scope(DashboardFilters(
+        retailer_code=filters.retailer_code,
+        country_code=filters.country_code,
+        product_type=filters.product_type,
+        brand=filters.brand,
+        date_from=filters.date_from,
+        date_to=filters.date_to,
+        currency=None,
+    ))
+    obs = list_price_observations(session, scope=scope, latest_only=True)
+    return sorted({o.currency for o in obs if o.currency})
+
+
+def tracked_brand_names() -> tuple[str, ...]:
+    from collector.search.config import load_sov_config
+
+    return tuple(load_sov_config().tracked_brands)
+
+
 # Re-export analytics wrappers used by pages
 __all__ = [
     "Insight",
     "AlertItem",
+    "retailer_search_coverage",
+    "available_currencies",
+    "tracked_brand_names",
     "metric_tracked_products",
     "metric_share_of_shelf",
     "metric_average_price",

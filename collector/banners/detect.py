@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import unquote
 
 import yaml
 
@@ -18,15 +19,31 @@ UNKNOWN = "UNKNOWN"
 AMBIGUOUS = "AMBIGUOUS"
 
 # Strong brand token-boundary patterns (prefer specific phrases).
+# OEM names (ASUS, MSI, Lenovo, Dell, HP, Acer, …) are intentionally absent.
 _BRAND_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("Intel", re.compile(r"(?<![a-z0-9])intel(?:\s+core(?:\s+ultra)?)?(?![a-z0-9])", re.I)),
+    ("Intel", re.compile(r"(?<![a-z0-9])intel\s+evo(?![a-z0-9])", re.I)),
+    ("Intel", re.compile(r"(?<![a-z0-9])intel\s+vpro(?![a-z0-9])", re.I)),
+    ("Intel", re.compile(r"(?<![a-z0-9])core\s+ultra(?![a-z0-9])", re.I)),
     ("AMD", re.compile(r"(?<![a-z0-9])amd(?:\s+ryzen(?:\s+ai)?)?(?![a-z0-9])", re.I)),
     ("AMD", re.compile(r"(?<![a-z0-9])ryzen(?:\s+ai)?(?![a-z0-9])", re.I)),
+    ("AMD", re.compile(r"(?<![a-z0-9])radeon(?![a-z0-9])", re.I)),
     ("Qualcomm", re.compile(r"(?<![a-z0-9])qualcomm(?![a-z0-9])", re.I)),
     ("Qualcomm", re.compile(r"(?<![a-z0-9])snapdragon(?![a-z0-9])", re.I)),
     ("Apple", re.compile(r"(?<![a-z0-9])apple(?:\s+silicon)?(?![a-z0-9])", re.I)),
     ("Apple", re.compile(r"(?<![a-z0-9])macbook(?![a-z0-9])", re.I)),
+    ("Apple", re.compile(r"(?<![a-z0-9])m-series(?![a-z0-9])", re.I)),
     ("Apple", re.compile(r"(?<![a-z0-9])m[1-4](?:\s*(?:pro|max|ultra))?(?![a-z0-9])", re.I)),
+]
+
+# M1–M4 are too short for URL/filename matching (tracking IDs). Keep them on text layers only.
+_URL_UNSAFE_PATTERNS = (
+    re.compile(r"(?<![a-z0-9])m[1-4](?:\s*(?:pro|max|ultra))?(?![a-z0-9])", re.I),
+)
+_URL_BRAND_PATTERNS = [
+    (brand, pattern)
+    for brand, pattern in _BRAND_PATTERNS
+    if pattern.pattern not in {p.pattern for p in _URL_UNSAFE_PATTERNS}
 ]
 
 
@@ -141,29 +158,64 @@ def is_excluded_region(
     return False
 
 
+def _decode_url_evidence(value: str) -> str:
+    """Percent-decode campaign URLs / image paths without inventing tokens."""
+    decoded = value
+    for _ in range(2):
+        nxt = unquote(decoded)
+        if nxt == decoded:
+            break
+        decoded = nxt
+    return decoded
+
+
+def _search_blobs(method: str, value: str) -> list[str]:
+    if method in {"href", "image_url"}:
+        decoded = _decode_url_evidence(value)
+        spaced = decoded.replace("+", " ").replace("_", " ").replace("-", " ")
+        return [decoded, spaced]
+    return [value]
+
+
+def _brand_hits(method: str, value: str) -> list[str]:
+    patterns = _URL_BRAND_PATTERNS if method in {"href", "image_url"} else _BRAND_PATTERNS
+    hits: list[str] = []
+    for blob in _search_blobs(method, value):
+        for brand, pattern in patterns:
+            if pattern.search(blob) and brand not in hits:
+                hits.append(brand)
+    return hits
+
+
 def detect_brand_from_evidence(
     *,
     text: Optional[str] = None,
     aria_label: Optional[str] = None,
     alt: Optional[str] = None,
     title: Optional[str] = None,
+    href: Optional[str] = None,
+    image_url: Optional[str] = None,
     evidence_priority: Optional[list[str]] = None,
 ) -> tuple[str, str, Optional[str]]:
     """Return (brand, detection_method, matched_evidence).
 
-    Uses token-boundary patterns. Conflicting brands → AMBIGUOUS.
-    No confident match → UNKNOWN. Never guesses.
+    Uses token-boundary patterns over banner evidence only (text, aria, alt,
+    title, href, image URL/filename). Conflicting brands → AMBIGUOUS.
+    No confident match → UNKNOWN. Never guesses from OEM or product tables.
     """
     cfg = load_banner_config()
     priority = evidence_priority or list(
-        (cfg.get("detection") or {}).get("evidence_priority") or ["text", "aria_label", "alt", "title"]
+        (cfg.get("detection") or {}).get("evidence_priority")
+        or ["text", "aria_label", "alt", "title", "href", "image_url"]
     )
-    # DOM structure is handled by candidate selection; brand comes from text layers.
+    # DOM structure is handled by candidate selection; brand comes from evidence layers.
     layers: list[tuple[str, Optional[str]]] = [
         ("text", text),
         ("aria_label", aria_label),
         ("alt", alt),
         ("title", title),
+        ("href", href),
+        ("image_url", image_url),
     ]
     ordered = []
     for name in priority:
@@ -180,15 +232,13 @@ def detect_brand_from_evidence(
     for method, value in ordered:
         if not value or not str(value).strip():
             continue
-        hits: list[str] = []
-        for brand, pattern in _BRAND_PATTERNS:
-            if pattern.search(value) and brand not in hits:
-                hits.append(brand)
+        hits = _brand_hits(method, str(value))
         if len(hits) > 1:
             return AMBIGUOUS, method, value.strip()[:500]
         if len(hits) == 1:
             return hits[0], method, value.strip()[:500]
-    return UNKNOWN, "text", (text or aria_label or alt or title or "")[:500] or None
+    fallback = text or aria_label or alt or title or href or image_url or ""
+    return UNKNOWN, "text", fallback[:500] or None
 
 
 def process_banner_candidates(
@@ -219,17 +269,24 @@ def process_banner_candidates(
         alt = (raw.get("alt") or "").strip() or None
         title = (raw.get("title") or "").strip() or None
         href = (raw.get("href") or "").strip() or None
+        image_url = (raw.get("image_url") or "").strip() or None
 
-        # Require some promotional surface signal or brand evidence in a banner container
-        evidence_blob = " ".join(x for x in [text, aria, alt, title] if x)
+        # Require observed banner evidence (visible text layers and/or URL/filename).
+        evidence_blob = " ".join(x for x in [text, aria, alt, title, href, image_url] if x)
         if not evidence_blob.strip():
             continue
 
         brand, method, matched = detect_brand_from_evidence(
-            text=text, aria_label=aria, alt=alt, title=title
+            text=text,
+            aria_label=aria,
+            alt=alt,
+            title=title,
+            href=href,
+            image_url=image_url,
         )
-        discount = extract_discount_text(evidence_blob, config=cfg)
-        badge = extract_badge_text(evidence_blob, config=cfg)
+        visible_blob = " ".join(x for x in [text, aria, alt, title] if x)
+        discount = extract_discount_text(visible_blob or evidence_blob, config=cfg)
+        badge = extract_badge_text(visible_blob or evidence_blob, config=cfg)
         banner_text = text or aria or alt or title
         if banner_text:
             banner_text = re.sub(r"\s+", " ", banner_text).strip()[:1000]
@@ -268,6 +325,7 @@ def process_banner_candidates(
                     "aria_label": aria,
                     "alt": alt,
                     "title_attr": title,
+                    "image_url": image_url,
                     "ocr_used": False,
                 },
             )

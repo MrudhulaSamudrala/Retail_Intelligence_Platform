@@ -13,7 +13,11 @@ from collector.config_loader import get_retailer
 from collector.normalize import NormalizedProduct
 from collector.retailers.newegg.discovery import load_discovery_config
 from collector.retailers.newegg.listing import extract_listings_from_page
-from collector.retailers.newegg.product_page import is_bot_challenge, parse_product_page
+from collector.retailers.newegg.product_page import (
+    build_from_listing,
+    is_bot_challenge,
+    parse_product_page,
+)
 from collector.universe_config import (
     allocate_stratum_budgets,
     load_search_universe_config,
@@ -392,10 +396,41 @@ class NeweggCollector(RetailerCollector):
                 path = await session.screenshot(
                     page, label=f"newegg_bot_{candidate.retailer_sku}"
                 )
-                raise RuntimeError(
-                    f"Newegg bot challenge on product page. screenshot={path}"
+                logger.warning(
+                    "newegg_pdp_blocked",
+                    extra={
+                        "event": "newegg_pdp_blocked",
+                        "reason": "bot_challenge",
+                        "sku": candidate.retailer_sku,
+                        "url": candidate.source_url,
+                        "screenshot": path,
+                        "retailer": self.code,
+                    },
+                )
+                listing_raw = dict(candidate.raw or {})
+                listing_raw.setdefault("title", candidate.title)
+                return build_from_listing(
+                    retailer_code=self.code,
+                    country_code=self.country_code,
+                    currency=self.currency,
+                    sku=candidate.retailer_sku,
+                    source_url=candidate.source_url,
+                    title=candidate.title,
+                    price_text=candidate.price_text,
+                    list_price_text=candidate.list_price_text,
+                    promo_text=candidate.promo_text,
+                    category_raw=candidate.category_raw,
+                    detail_page_status="bot_challenge",
+                    listing_raw=listing_raw,
                 )
 
+            listing_raw = dict(candidate.raw or {})
+            listing_raw.setdefault("title", candidate.title)
+            listing_raw.setdefault("price_text", candidate.price_text)
+            listing_raw.setdefault("list_price_text", candidate.list_price_text)
+            listing_raw.setdefault("promo_text", candidate.promo_text)
+            listing_raw.setdefault("sku", candidate.retailer_sku)
+            listing_raw.setdefault("href", candidate.source_url)
             product = await parse_product_page(
                 page,
                 retailer_code=self.code,
@@ -410,6 +445,7 @@ class NeweggCollector(RetailerCollector):
                 listing_features=candidate.raw.get("features")
                 if isinstance(candidate.raw.get("features"), list)
                 else None,
+                listing_raw=listing_raw,
             )
             if not product.promo_text and candidate.promo_text:
                 product.promo_text = candidate.promo_text

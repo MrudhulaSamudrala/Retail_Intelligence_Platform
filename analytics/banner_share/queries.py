@@ -92,9 +92,11 @@ def banner_share_by_brand(
             continue
         counts[brand] = counts.get(brand, 0) + 1
 
-    # Ensure tracked brands appear even at zero when denominator > 0 or always list them
-    for brand in TRACKED_BRANDS:
-        counts.setdefault(brand, 0)
+    # Zero-fill tracked brands only when a tracked-brand denominator exists.
+    # 0/0 must not become Intel/AMD percentages.
+    if total_tracked > 0:
+        for brand in TRACKED_BRANDS:
+            counts.setdefault(brand, 0)
 
     shares = [
         BannerShareRow(

@@ -1,253 +1,88 @@
-"""Visibility page — retailer-specific, cross-retailer MATCHED, and brand SoV."""
+"""Search visibility (Share of Voice) section."""
 
 from __future__ import annotations
 
-from datetime import datetime
+from dataclasses import replace
 
 import pandas as pd
 import streamlit as st
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from dashboard.components.header import render_header
-from dashboard.components.kpi_cards import render_kpi_card
-from dashboard.components.tables import show_dataframe
+from dashboard.components.charts import horizontal_share_bars
+from dashboard.components.filters_ui import select_keyword, select_retailer, select_stratum
+from dashboard.components.layout import card, section_header, status_pill
 from dashboard.filters import DashboardFilters, to_sov_scope
-from dashboard.queries.collection import CollectionStatusSnapshot
-from dashboard.services import (
-    MATCHED_STATUS,
-    crosswalk_summary,
-    highest_cross_retailer_visibility,
-    highest_visibility_by_retailer,
-    keyword_metrics,
-    list_cross_retailer_visibility,
-    share_of_voice,
-)
-from dashboard.utils.semantics import MetricValue
-from database.models import SearchObservation
+from dashboard.presentation import TRACKED_PLATFORM_BRANDS, brand_sort_key, ranked_visibility_available
+from dashboard.queries.collection import filter_option_values, list_search_keywords
+from dashboard.services import retailer_search_coverage, share_of_voice
 
 
-def render(
-    session: Session,
-    filters: DashboardFilters,
-    collection: CollectionStatusSnapshot,
-    refreshed_at: datetime | None,
-) -> None:
-    render_header(
-        page_title="Visibility",
-        subtitle="Retailer-specific product visibility, MATCHED cross-retailer visibility, and brand Share of Voice.",
-        collection=collection,
-        filters=filters,
-        analytics_refreshed_at=refreshed_at,
-    )
+def render_search(session: Session, filters: DashboardFilters) -> None:
+    with card():
+        options = filter_option_values(session)
+        keywords = list_search_keywords(session)
+        title_col, pill_col = st.columns([4, 1.4])
+        with title_col:
+            section_header(
+                "Search Visibility",
+                "Share of Voice across observed search results.",
+            )
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            retailer = select_retailer("sov_retailer", options.get("retailer_code", []))
+        with c2:
+            stratum = select_stratum("sov_stratum")
+        with c3:
+            keyword = select_keyword("sov_keyword", keywords)
 
-    sov_scope = to_sov_scope(filters)
-    sov = share_of_voice(session, scope=sov_scope)
+        scoped = replace(filters, retailer_code=retailer, stratum=stratum)
+        snap = share_of_voice(session, scope=to_sov_scope(scoped, keyword=keyword))
+        partial = snap.collection_basis in {"observed_partial", "mixed"} or snap.partial_searches > 0
+        show_partial = False
+        if retailer:
+            cov = retailer_search_coverage(session, retailer)
+            show_partial = cov.status == "PARTIAL"
+        else:
+            show_partial = partial
+        with pill_col:
+            if show_partial:
+                st.markdown(
+                    status_pill("PARTIAL RANKED COVERAGE", kind="warn"),
+                    unsafe_allow_html=True,
+                )
 
-    if sov.partial_searches > 0 or sov.collection_basis in {"observed_partial", "mixed"}:
-        st.warning(
-            "Partial search coverage — this is not an exact full-SERP Share of Voice measurement."
-        )
-
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        render_kpi_card(
-            "Tracked appearances",
-            MetricValue.from_number(
-                sov.tracked_appearances,
-                display=str(sov.tracked_appearances),
-                source="analytics.share_of_voice",
-            ),
-            timestamp=refreshed_at,
-        )
-    with c2:
-        render_kpi_card(
-            "COMPLETE searches",
-            MetricValue.from_number(sov.complete_searches, display=str(sov.complete_searches)),
-            timestamp=refreshed_at,
-        )
-    with c3:
-        render_kpi_card(
-            "PARTIAL searches",
-            MetricValue.from_number(sov.partial_searches, display=str(sov.partial_searches)),
-            timestamp=refreshed_at,
-        )
-    with c4:
-        render_kpi_card(
-            "Collection basis",
-            MetricValue.from_number(
-                None if not sov.collection_basis else 1,
-                display=sov.collection_basis or "No data",
-                source="analytics.share_of_voice",
-            ),
-            timestamp=refreshed_at,
-        )
-
-    st.markdown("### A. Retailer-specific visibility")
-    st.caption("Highest visibility products — never mixes retailers.")
-    for retailer in ("newegg", "mercadolibre"):
-        if filters.retailer_code and filters.retailer_code != retailer:
-            continue
-        st.markdown(f"#### {retailer}")
-        rows = highest_visibility_by_retailer(
-            session,
-            retailer,
-            country_code=filters.country_code,
-            brand=filters.brand,
-            product_type=filters.product_type,
-            observed_from=filters.date_from,
-            observed_to=filters.date_to,
-            top_n=20,
-        )
+        metrics = [m for m in snap.metrics if m.brand in TRACKED_PLATFORM_BRANDS]
+        has_metrics = ranked_visibility_available(snap.collection_basis, has_metrics=bool(metrics))
         df = pd.DataFrame(
             [
                 {
-                    "product_id": r.product_id,
-                    "sku": r.retailer_sku,
-                    "title": r.title,
-                    "brand": r.brand,
-                    "oem": r.oem,
-                    "appearances": r.appearances,
-                    "top3": r.top3_appearances,
-                    "top5": r.top5_appearances,
-                    "top10": r.top10_appearances,
-                    "top20": r.top20_appearances,
-                    "avg_rank": float(r.average_rank) if r.average_rank is not None else None,
-                    "visibility_score": float(r.visibility_score),
-                    "keywords": ", ".join(r.keywords),
+                    "brand": m.brand,
+                    "share_pct": float(m.share_of_voice) * 100.0,
+                    "appearances": m.appearances,
                 }
-                for r in rows
+                for m in metrics
             ]
         )
-        show_dataframe(df, empty_message=f"No visibility data for {retailer}.")
+        if not df.empty:
+            df["_ord"] = df["brand"].map(brand_sort_key)
+            df = df.sort_values("_ord").drop(columns=["_ord"])
 
-    st.markdown("### B. Cross-retailer visibility (MATCHED only)")
-    st.caption(
-        "Only products with reliable canonical MATCHED identity. "
-        "POSSIBLE_MATCH / UNMATCHED excluded from authoritative ranking."
-    )
-    include_possible = st.checkbox(
-        "Also show POSSIBLE_MATCH (not authoritative)",
-        value=False,
-        key="vis_possible",
-    )
-    xwalk = crosswalk_summary(session)
-    st.write({"crosswalk_summary": xwalk, "authoritative_status": MATCHED_STATUS})
-
-    matched_rows = list_cross_retailer_visibility(session, top_n=50)
-    if include_possible:
-        st.info(
-            "Authoritative table remains MATCHED-only. "
-            "POSSIBLE_MATCH is not included in combined rankings by design."
+        horizontal_share_bars(
+            df if has_metrics else pd.DataFrame(),
+            category_col="brand",
+            value_col="share_pct",
+            title="Share of Voice",
+            definition="Brand search-result appearances / total tracked-brand appearances.",
+            source="analytics.share_of_voice",
+            filters_label=scoped.label_summary() + (f", Keyword={keyword}" if keyword else ""),
+            x_title="Share of Voice (%)",
+            hover_extra=["appearances"],
+            value_is_pct=True,
+            height=260,
+            empty_title="Ranked visibility unavailable",
+            empty_explanation="This retailer's current collection does not provide complete ranked search coverage.",
         )
 
-    xdf = pd.DataFrame(
-        [
-            {
-                "canonical_product_id": r.canonical_product_id,
-                "display_name": r.display_name,
-                "match_status": r.match_status,
-                "match_method": r.match_method,
-                "match_confidence": float(r.match_confidence)
-                if r.match_confidence is not None
-                else None,
-                "newegg_product_id": r.newegg_product_id,
-                "mercadolibre_product_id": r.mercadolibre_product_id,
-                "newegg_visibility": float(r.newegg_visibility.visibility_score)
-                if r.newegg_visibility
-                else None,
-                "mercadolibre_visibility": float(r.mercadolibre_visibility.visibility_score)
-                if r.mercadolibre_visibility
-                else None,
-                "combined_visibility": float(r.combined_visibility_score),
-                "combined_appearances": r.combined_appearances,
-            }
-            for r in matched_rows
-        ]
-    )
-    if xdf.empty:
-        st.info(
-            "No MATCHED cross-retailer pairs with visibility data for the selected filters."
-        )
-    else:
-        show_dataframe(xdf)
 
-    top_combined = highest_cross_retailer_visibility(session, top_n=10)
-    st.subheader("Highest combined visibility (MATCHED)")
-    show_dataframe(
-        pd.DataFrame(
-            [
-                {
-                    "canonical_product_id": r.canonical_product_id,
-                    "name": r.display_name,
-                    "combined_score": float(r.combined_visibility_score),
-                    "match_confidence": float(r.match_confidence)
-                    if r.match_confidence is not None
-                    else None,
-                    "method": r.match_method,
-                }
-                for r in top_combined
-            ]
-        ),
-        empty_message="Insufficient MATCHED identity for cross-retailer ranking.",
-    )
-
-    st.markdown("### Search Visibility / Share of Voice")
-    brand_df = pd.DataFrame(
-        [
-            {
-                "brand": m.brand,
-                "present": m.present,
-                "appearances": m.appearances,
-                "top_n": m.top_n,
-                "top_n_count": m.top_n_count,
-                "average_rank": float(m.average_rank) if m.average_rank is not None else None,
-                "share_of_voice_pct": float(m.share_of_voice) * 100.0,
-                "basis": m.collection_basis,
-            }
-            for m in sov.metrics
-        ]
-    )
-    show_dataframe(brand_df, empty_message="No Share of Voice metrics for selected filters.")
-
-    st.subheader("Keyword table")
-    kw = keyword_metrics(session, scope=sov_scope)
-    kw_df = pd.DataFrame(
-        [
-            {
-                "brand": m.brand,
-                "keyword": m.keyword,
-                "retailer": m.retailer_code,
-                "country": m.country_code,
-                "appearances": m.appearances,
-                "top_n_count": m.top_n_count,
-                "avg_rank": float(m.average_rank) if m.average_rank is not None else None,
-                "sov_pct": float(m.share_of_voice) * 100.0,
-                "basis": m.collection_basis,
-            }
-            for m in kw
-        ]
-    )
-    show_dataframe(kw_df, empty_message="No keyword metrics.")
-
-    st.subheader("Search collection quality")
-    statuses = session.execute(
-        select(SearchObservation.collection_status, SearchObservation.retailer_code)
-        .order_by(SearchObservation.observed_at.desc())
-        .limit(500)
-    ).all()
-    quality_rows = [{"retailer": retailer, "collection_status": status} for status, retailer in statuses]
-    if quality_rows:
-        qdf = (
-            pd.DataFrame(quality_rows)
-            .value_counts(["retailer", "collection_status"])
-            .reset_index(name="count")
-        )
-        show_dataframe(qdf)
-        if ((qdf["retailer"] == "mercadolibre") & (qdf["collection_status"] == "PARTIAL")).any():
-            st.warning(
-                "Mercado Libre search is PARTIAL — this is not an exact full-SERP "
-                "Share of Voice measurement."
-            )
-    else:
-        st.info("No search observations available.")
+def render(session: Session, filters: DashboardFilters) -> None:
+    render_search(session, filters)

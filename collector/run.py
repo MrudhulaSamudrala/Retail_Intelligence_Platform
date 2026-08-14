@@ -42,6 +42,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Run the full production orchestration pipeline once and exit",
     )
     parser.add_argument(
+        "--scheduled",
+        action="store_true",
+        help=(
+            "Host scheduler tick: same pipeline as --all, "
+            "records run metadata source=scheduled"
+        ),
+    )
+    parser.add_argument(
         "--retailer",
         choices=["newegg", "mercadolibre"],
         action="append",
@@ -85,8 +93,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     args = parser.parse_args(argv)
+    if args.scheduled:
+        args.all = True
     if not args.all and not args.retailer and not args.step and not args.dry_run:
-        parser.error("Specify --all, --retailer, --step, and/or --dry-run")
+        parser.error("Specify --all, --scheduled, --retailer, --step, and/or --dry-run")
     if args.legacy_product_only and not args.retailer:
         parser.error("--legacy-product-only requires --retailer")
     return args
@@ -176,6 +186,7 @@ async def _orchestrated_main(args: argparse.Namespace) -> int:
             retailers=retailers,
             steps=steps,
             dry_run=args.dry_run,
+            trigger_source="scheduled" if args.scheduled else None,
         )
         return result.exit_code
     finally:

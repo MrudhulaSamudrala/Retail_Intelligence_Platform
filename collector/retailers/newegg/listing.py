@@ -164,7 +164,10 @@ async def extract_listings_from_page(page, *, category_raw: Optional[str] = None
                     pass
                 try:
                     cls = ((await card.get_attribute("class")) or "").lower()
-                    head = ((await card.inner_text()) or "")[:240].lower()
+                    tile = ((await card.inner_text()) or "").strip()
+                    if tile:
+                        candidate.raw["tile_text"] = tile[:2000]
+                    head = tile[:240].lower()
                     candidate.raw["is_sponsored"] = (
                         "sponsored" in cls
                         or "sponsored" in head

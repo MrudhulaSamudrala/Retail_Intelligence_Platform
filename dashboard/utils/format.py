@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Optional, Union
 
@@ -12,9 +12,20 @@ Number = Union[int, float, Decimal]
 def fmt_ts(value: Optional[datetime]) -> str:
     if value is None:
         return "—"
-    if value.tzinfo is None:
-        return value.strftime("%Y-%m-%d %H:%M UTC") + " (naive)"
-    return value.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+    dt = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    label = None
+    try:
+        import streamlit as st
+
+        label = st.session_state.get("display_timezone")
+    except Exception:
+        label = None
+    if label == "UTC":
+        return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    if label == "India Standard Time":
+        ist = timezone(timedelta(hours=5, minutes=30))
+        return dt.astimezone(ist).strftime("%Y-%m-%d %H:%M IST")
+    return dt.astimezone().strftime("%Y-%m-%d %H:%M %Z")
 
 
 def fmt_pct(value: Optional[Number], *, digits: int = 1, already_ratio: bool = True) -> str:

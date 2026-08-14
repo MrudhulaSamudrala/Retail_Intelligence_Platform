@@ -351,7 +351,7 @@ def test_dry_run_no_inserts(session: Session) -> None:
 
 
 def test_cli_parse_all() -> None:
-    from collector.run import parse_args
+    from collector.run import STEP_CHOICES, parse_args
 
     args = parse_args(["--all"])
     assert args.all is True
@@ -359,6 +359,11 @@ def test_cli_parse_all() -> None:
     assert args2.step == ["audits", "banners"]
     args3 = parse_args(["--all", "--dry-run"])
     assert args3.dry_run is True
+    assert "banners" in STEP_CHOICES
+    banners_only = parse_args(["--step", "banners"])
+    assert banners_only.step == ["banners"]
+    assert banners_only.all is False
+    assert banners_only.retailer is None
 
 
 def test_cli_requires_mode() -> None:
@@ -403,3 +408,72 @@ def test_configuration_validation_keys(session: Session) -> None:
     assert "checks" in validation
     assert "database" in validation["checks"]
     assert "tables" in validation["checks"]
+
+
+def test_banners_step_is_discoverable_and_skipped_when_omitted(session: Session) -> None:
+    from collector.orchestration.config import COMPONENTS
+
+    assert "banners" in COMPONENTS
+    runner = ProductionRunner(
+        session,
+        config=_fast_config(),
+        steps=["newegg", "mercadolibre", "audits", "badges", "pricing"],
+    )
+    assert runner._component_enabled("banners") is False
+    assert runner._component_enabled("search") is False
+    assert runner._component_enabled("newegg") is True
+
+
+def test_banners_step_enabled_for_step_flag_and_all(session: Session) -> None:
+    banners_only = ProductionRunner(session, config=_fast_config(), steps=["banners"])
+    assert banners_only._component_enabled("banners") is True
+    assert banners_only._component_enabled("newegg") is False
+    full = ProductionRunner(session, config=_fast_config())
+    assert full._component_enabled("banners") is True
+    narrowed_all = ProductionRunner(
+        session, config=_fast_config(), retailers=["newegg"]
+    )
+    assert narrowed_all._component_enabled("banners") is True
+    assert narrowed_all._component_enabled("newegg") is True
+    assert narrowed_all._component_enabled("mercadolibre") is False
+
+
+def test_banners_only_run_calls_existing_collector(session: Session) -> None:
+    banners = AsyncMock(return_value=_ok("banners", 3))
+    product = AsyncMock(return_value=_ok("newegg", 10))
+
+    async def _run():
+        runner = ProductionRunner(session, config=_fast_config(), steps=["banners"])
+        with (
+            patch("collector.orchestration.runner.run_banners_step", new=banners),
+            patch("collector.orchestration.runner.run_newegg_products", new=product),
+            patch(
+                "collector.orchestration.runner.run_mercadolibre_products",
+                new=AsyncMock(return_value=_ok("mercadolibre")),
+            ),
+            patch(
+                "collector.orchestration.runner.run_audits_step",
+                new=AsyncMock(return_value=_ok("audits")),
+            ),
+            patch(
+                "collector.orchestration.runner.run_badges_step",
+                new=AsyncMock(return_value=_ok("badges")),
+            ),
+            patch(
+                "collector.orchestration.runner.run_pricing_step",
+                new=AsyncMock(return_value=_ok("pricing")),
+            ),
+            patch(
+                "collector.orchestration.runner.run_search_step",
+                new=AsyncMock(return_value=_ok("search")),
+            ),
+        ):
+            return await runner.run()
+
+    result = asyncio.run(_run())
+    assert result.status == STATUS_SUCCESS
+    banners.assert_awaited_once()
+    product.assert_not_called()
+    by = {s.component: s for s in result.steps}
+    assert by["banners"].status == STATUS_SUCCESS
+    assert by["newegg"].status == STATUS_SKIPPED

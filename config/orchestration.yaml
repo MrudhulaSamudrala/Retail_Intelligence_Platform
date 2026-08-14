@@ -2,7 +2,9 @@
 # Secrets remain in environment variables / .env (never commit credentials).
 
 orchestration:
-  trigger_source: cli  # overridden by RENDER / CRON env when present
+  trigger_source: cli  # overridden by --scheduled / COLLECTION_TRIGGER / RENDER
+  # Observed SERP positions come from config/search_visibility.yaml (search_universe_size).
+  # This key is documentation only; the runner does not use a second hardcoded limit.
   product_limit_per_retailer: 100
   search_limit_per_retailer: 3
   stale_running_hours: 6

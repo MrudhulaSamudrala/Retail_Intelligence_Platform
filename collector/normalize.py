@@ -204,6 +204,13 @@ def _is_discovery_slug(category_raw: Optional[str]) -> bool:
     )
 
 
+def evidence_category_raw(category_raw: Optional[str]) -> Optional[str]:
+    """Category used for classification. Stratum/query slugs are not evidence."""
+    if not category_raw or _is_discovery_slug(category_raw):
+        return None
+    return category_raw
+
+
 def _title_type_blob(title: Optional[str], specs: Optional[dict[str, str]]) -> str:
     """Title plus non-noisy specs. Never treat 'Processors Type=Desktop' as product type."""
     parts = [title or ""]

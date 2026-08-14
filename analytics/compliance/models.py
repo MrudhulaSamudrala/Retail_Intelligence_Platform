@@ -20,6 +20,7 @@ class AuditScoreRow:
     product_type: Optional[str]
     check_code: str
     result: str  # PASS | FAIL | UNKNOWN
+    product_id: Optional[int] = None
 
 
 @dataclass

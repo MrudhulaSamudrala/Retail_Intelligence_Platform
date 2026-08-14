@@ -13,8 +13,10 @@ A listing enters the SoS denominator when **all** of the following hold:
    ``gaming_signals`` (title_keywords / category_keywords).
 5. **Deduplicated** by ``(retailer_code, country_code, retailer_sku)``.
 6. **Out-of-stock included** when ``include_out_of_stock: true`` (default).
-7. Active products only for the live ``products`` table view
-   (``is_active``); historical snapshot views use snapshot presence instead.
+7. **Current** SoS uses products observed in the latest stratified
+   catalog collection per ``(retailer_code, country_code)``. Historical
+   catalog rows stay in ``products`` but are not mixed into the current
+   denominator. Explicit historical SoS uses ``SosScope.current_universe=False``.
 
 Brand UNKNOWN and Brand OTHER are **not** exclusion criteria.
 

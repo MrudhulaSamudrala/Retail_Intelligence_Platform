@@ -79,7 +79,7 @@ def main() -> int:
             if not ok:
                 exclusion_reasons[reason or "unknown"] += 1
 
-        listings, exclusions = load_eligible_listings(session, scope=SosScope())
+        listings, exclusions, _batch = load_eligible_listings(session, scope=SosScope())
         brand_sos = share_of_shelf_by_brand(session)
         oem_sos = share_of_shelf_by_oem(session)
 
@@ -104,6 +104,7 @@ def main() -> int:
         print(f"Products (active):             {active_products}")
         print(f"Product snapshots (historical):{snapshot_count}")
         print(f"Eligible universe size:        {brand_sos.universe_size}")
+        print(f"Collection status:             {brand_sos.collection_status}")
         print(f"Excluded from universe:        {active_products - brand_sos.universe_size}")
         print("Exclusion reasons (active products):")
         if exclusion_reasons:

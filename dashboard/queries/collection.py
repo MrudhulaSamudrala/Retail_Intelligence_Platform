@@ -14,7 +14,7 @@ from sqlalchemy import distinct, func, select
 from sqlalchemy.orm import Session
 
 from dashboard.config import dashboard_meta
-from database.models import CollectionRun, CollectionRunStep, Product
+from database.models import CollectionRun, CollectionRunStep, Product, SearchObservation
 
 
 @dataclass
@@ -72,6 +72,16 @@ def filter_option_values(session: Session) -> dict[str, list[str]]:
         "brand": _col(Product.brand),
         "oem": _col(Product.oem),
     }
+
+
+def list_search_keywords(session: Session, *, limit: int = 80) -> list[str]:
+    rows = session.scalars(
+        select(distinct(SearchObservation.keyword))
+        .where(SearchObservation.keyword.is_not(None))
+        .order_by(SearchObservation.keyword)
+        .limit(limit)
+    ).all()
+    return [str(r) for r in rows if r]
 
 
 def count_tracked_products(session: Session, *, retailer_code: Optional[str] = None) -> int:

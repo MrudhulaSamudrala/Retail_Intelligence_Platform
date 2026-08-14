@@ -25,6 +25,8 @@ detection:
     - aria_label
     - alt
     - title
+    - href
+    - image_url
 
 # Candidate containers that look like promotional banners / heroes / carousels.
 banner_selectors:

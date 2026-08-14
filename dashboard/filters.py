@@ -26,6 +26,8 @@ class DashboardFilters:
     oem: Optional[str] = None
     date_from: Optional[datetime] = None
     date_to: Optional[datetime] = None
+    currency: Optional[str] = None
+    stratum: Optional[str] = None
 
     def label_summary(self) -> str:
         parts: list[str] = []
@@ -39,6 +41,10 @@ class DashboardFilters:
             parts.append(f"Brand={self.brand}")
         if self.oem:
             parts.append(f"OEM={self.oem}")
+        if self.currency:
+            parts.append(f"Currency={self.currency}")
+        if self.stratum:
+            parts.append(f"Stratum={self.stratum}")
         if self.date_from or self.date_to:
             a = self.date_from.date().isoformat() if self.date_from else "…"
             b = self.date_to.date().isoformat() if self.date_to else "…"
@@ -79,6 +85,7 @@ def to_pricing_scope(filters: DashboardFilters) -> PricingScope:
         retailer_code=filters.retailer_code,
         country_code=filters.country_code,
         product_type=filters.product_type,
+        currency=filters.currency,
         observed_from=filters.date_from,
         observed_to=filters.date_to,
     )
@@ -103,6 +110,7 @@ def to_sov_scope(filters: DashboardFilters, *, keyword: Optional[str] = None) ->
         observed_from=filters.date_from,
         observed_to=filters.date_to,
         require_complete=False,
+        stratum=filters.stratum,
     )
 
 
@@ -123,11 +131,17 @@ def to_visibility_scope(filters: DashboardFilters) -> VisibilityScope:
         product_type=filters.product_type,
         observed_from=filters.date_from,
         observed_to=filters.date_to,
+        stratum=filters.stratum,
+        top_n=10,
     )
 
 
 def audit_row_matches(row, filters: DashboardFilters) -> bool:
-    """Filter compliance ``AuditScoreRow`` instances client-side."""
+    """Filter compliance ``AuditScoreRow`` instances client-side.
+
+    Current-universe compliance is the latest audit batch, not the header
+    collection-period window. Date filters must not drop those rows.
+    """
     if filters.retailer_code and row.retailer_code != filters.retailer_code:
         return False
     if filters.country_code and row.country_code != filters.country_code:

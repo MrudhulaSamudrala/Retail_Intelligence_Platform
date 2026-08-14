@@ -32,8 +32,9 @@ retailers:
       share_of_voice_per_day: 1
 
 scheduling:
-  # Cron expressions for Render Cron Jobs (UTC). See docs/deployment.md.
-  # Production runner: python -m collector.run --all at 08:00 / 14:00 / 20:00 UTC.
+  # Host cron / Task Scheduler (project timezone UTC). See docs/deployment.md.
+  # Command: python -m collector.run --all --scheduled
+  # Times: 08:00 / 14:00 / 20:00 UTC (three runs per day).
   pricing_audit_cron: "0 8,14,20 * * *"
   banner_cron: "0 8,14,20 * * *"
   production_cron: "0 8,14,20 * * *"

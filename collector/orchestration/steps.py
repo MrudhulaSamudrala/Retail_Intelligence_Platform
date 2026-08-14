@@ -6,7 +6,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional, Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -20,6 +20,32 @@ from collector.orchestration.config import (
 )
 
 logger = logging.getLogger("collector.orchestration.steps")
+
+
+def product_collection_step_status(outcome: Any) -> str:
+    """Map a collector outcome to orchestration status.
+
+    BLOCKED / PARTIAL completeness is never SUCCESS, even if some SKUs saved.
+    """
+    universe = getattr(outcome, "universe", None) or {}
+    completeness = str(universe.get("completeness") or "").upper()
+    search_status = str(universe.get("search_status") or "").upper()
+    outcome_status = str(getattr(outcome, "status", None) or "").lower()
+    bot_blocked = bool(getattr(outcome, "bot_blocked", False))
+    failed = getattr(outcome, "failed", None) or []
+
+    if outcome_status == "failed" or completeness == "FAILED":
+        return STATUS_FAILED
+    blocked = (
+        bot_blocked
+        or completeness in {"BLOCKED", "PARTIAL"}
+        or search_status == "BLOCKED"
+        or outcome_status == "partial"
+        or (not universe and bool(failed))
+    )
+    if blocked:
+        return STATUS_PARTIAL
+    return STATUS_SUCCESS
 
 
 @dataclass
@@ -84,11 +110,7 @@ async def run_newegg_products(
 
     new_products = max(int(after) - int(before), 0)
     reobserved = max(len(outcome.success) - new_products, 0)
-    status = STATUS_SUCCESS
-    if outcome.status == "failed":
-        status = STATUS_FAILED
-    elif outcome.status == "partial":
-        status = STATUS_PARTIAL
+    status = product_collection_step_status(outcome)
 
     return StepResult(
         component="newegg",
@@ -157,13 +179,7 @@ async def run_mercadolibre_products(
 
     new_products = max(int(after_ml) - int(before_ml), 0)
     reobserved = max(len(outcome.success) - new_products, 0)
-    status = STATUS_SUCCESS
-    if outcome.status == "failed":
-        status = STATUS_FAILED
-    elif outcome.status == "partial" or (
-        not (outcome.universe or {}) and outcome.failed
-    ):
-        status = STATUS_PARTIAL
+    status = product_collection_step_status(outcome)
 
     return StepResult(
         component="mercadolibre",
@@ -347,7 +363,11 @@ async def run_pricing_step(
 
 
 async def run_banners_step(
-    session: Session, *, parent_run_id: int, enabled: bool = True
+    session: Session,
+    *,
+    parent_run_id: int,
+    enabled: bool = True,
+    retailer_codes: Sequence[str] | None = None,
 ) -> StepResult:
     started = datetime.now(timezone.utc)
     if not enabled:
@@ -361,7 +381,7 @@ async def run_banners_step(
     from collector.banners.persist import persist_banners
     from database.repositories import CollectionRunRepository
 
-    results = await collect_homepage_banners()
+    results = await collect_homepage_banners(retailer_codes=retailer_codes)
     total = 0
     success = 0
     failed = 0

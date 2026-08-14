@@ -24,6 +24,7 @@ from analytics.compliance.models import (
     CoverageStats,
     SegmentScore,
 )
+from analytics.compliance.queries import evaluate_platform_badges, load_audit_rows
 from analytics.compliance.scoring import (
     compute_brand_scores,
     compute_compliance_score,
@@ -47,5 +48,7 @@ __all__ = [
     "compute_country_scores",
     "compute_retailer_scores",
     "compute_segment_score",
+    "evaluate_platform_badges",
+    "load_audit_rows",
     "load_compliance_score_config",
 ]

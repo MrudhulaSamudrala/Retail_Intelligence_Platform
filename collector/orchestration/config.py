@@ -44,6 +44,8 @@ class OrchestrationConfig:
 
 @lru_cache(maxsize=1)
 def load_orchestration_config() -> OrchestrationConfig:
+    from collector.universe_config import search_universe_size
+
     data: dict[str, Any] = {}
     if CONFIG_PATH.exists():
         with CONFIG_PATH.open(encoding="utf-8") as handle:
@@ -52,7 +54,7 @@ def load_orchestration_config() -> OrchestrationConfig:
     retries = orch.get("retries") or {}
     timeouts = orch.get("timeouts") or {}
     return OrchestrationConfig(
-        product_limit_per_retailer=int(orch.get("product_limit_per_retailer") or 100),
+        product_limit_per_retailer=int(search_universe_size()),
         search_limit_per_retailer=int(orch.get("search_limit_per_retailer") or 3),
         stale_running_hours=int(orch.get("stale_running_hours") or 6),
         concurrent_lock_key=int(orch.get("concurrent_lock_key") or 74628301),

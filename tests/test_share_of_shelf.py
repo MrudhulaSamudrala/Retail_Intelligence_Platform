@@ -23,12 +23,37 @@ from analytics.share_of_shelf import (
     share_of_shelf_trends,
 )
 from analytics.share_of_shelf.universe import build_eligible_universe, load_sos_universe_config
-from database.models import Base
+from database.models import Base, CollectionRun
 from database.repositories import (
     CollectionRunRepository,
     ObservationRepository,
     ProductRepository,
 )
+
+_STRATA = ("notebook", "desktop", "workstation", "tablet", "gpu", "cpu")
+
+
+def _mark_stratified(
+    run: CollectionRun,
+    *,
+    completeness: str = "COMPLETE",
+    used_fallback: bool = False,
+) -> None:
+    run.status = "completed" if completeness == "COMPLETE" else "partial"
+    run.run_metadata = {
+        "universe": {
+            "completeness": completeness,
+            "used_fallback": used_fallback,
+            "strata": [
+                {
+                    "stratum": name,
+                    "completeness": completeness,
+                    "used_fallback": used_fallback,
+                }
+                for name in _STRATA
+            ],
+        }
+    }
 
 
 @pytest.fixture()
@@ -83,6 +108,19 @@ def _add_product(
         category_raw=category_raw,
         collection_run_id=run_id,
     )
+    if not product_type or not title:
+        session.flush()
+        return row.id
+    ObservationRepository(session).add_snapshot(
+        product_id=row.id,
+        collection_run_id=run_id,
+        observed_at=datetime.now(timezone.utc),
+        title=title,
+        brand=brand,
+        oem=oem,
+        product_type=product_type,
+        category_raw=category_raw,
+    )
     session.flush()
     return row.id
 
@@ -107,6 +145,7 @@ def _seed_known_universe(session: Session) -> dict[str, int]:
     run = CollectionRunRepository(session).start(
         retailer_code="newegg", country_code="US", run_type="discovery"
     )
+    _mark_stratified(run)
     ids: dict[str, int] = {}
 
     # 3 Intel / Asus gaming notebooks
@@ -277,6 +316,7 @@ def test_apple_brand_oem_not_double_counted(session: Session) -> None:
     run = CollectionRunRepository(session).start(
         retailer_code="newegg", country_code="US", run_type="discovery"
     )
+    _mark_stratified(run)
     _add_product(
         session,
         sku="APPLE-ONLY-1",
@@ -316,6 +356,7 @@ def test_retailer_country_product_type_and_oem_filters(session: Session) -> None
     run = CollectionRunRepository(session).start(
         retailer_code="mercadolibre", country_code="BR", run_type="discovery"
     )
+    _mark_stratified(run)
     _add_product(
         session,
         sku="BR-AMD-1",
@@ -459,6 +500,7 @@ def test_furniture_and_other_type_excluded_from_sos_denominator(session: Session
     run = CollectionRunRepository(session).start(
         retailer_code="newegg", country_code="US", run_type="discovery"
     )
+    _mark_stratified(run)
     _add_product(
         session,
         sku="DESK-OTHER-1",
@@ -502,6 +544,7 @@ def test_other_brand_gaming_tablet_included_in_sos_denominator(session: Session)
     run = CollectionRunRepository(session).start(
         retailer_code="newegg", country_code="US", run_type="discovery"
     )
+    _mark_stratified(run)
     _add_product(
         session,
         sku="TAB-OTHER-1",

@@ -554,20 +554,23 @@ def test_historical_observations_preserved_on_type_correction(session: Session) 
         category_raw="notebook_gamer_ofertas",
         detail_page_status="listing_only",
     )
-    # Simulate the old bug: forced notebook on the row.
+    # Live persist uses the classifier (power bank → other), not a forced notebook hint.
     product.product_type = "notebook"
     pid = persister.save_product(product, collection_run_id=run.id)
     session.commit()
     assert session.scalar(select(func.count()).select_from(ProductSnapshot)) == 1
     assert session.scalar(select(func.count()).select_from(PriceHistory)) == 1
+    snap = session.scalars(select(ProductSnapshot)).one()
+    assert snap.product_type == "other"
 
     row = session.get(Product, pid)
     assert row is not None
-    row.product_type = UNKNOWN  # careful correction of live attributes only
+    assert row.product_type == "other"
+    row.product_type = UNKNOWN  # later live-row edit must not delete history
     session.commit()
 
     assert session.scalar(select(func.count()).select_from(ProductSnapshot)) == 1
     assert session.scalar(select(func.count()).select_from(PriceHistory)) == 1
     snap = session.scalars(select(ProductSnapshot)).one()
-    assert snap.product_type == "notebook"  # historical observation preserved
+    assert snap.product_type == "other"  # historical observation preserved
     assert row.product_type == UNKNOWN

@@ -39,6 +39,40 @@ class SkuRow:
     last_observed_at: Optional[datetime]
     evidence_status: Optional[str]
     is_active: bool
+    processor: Optional[str] = None
+    gpu: Optional[str] = None
+    ram: Optional[str] = None
+    storage: Optional[str] = None
+    is_on_promotion: bool = False
+
+
+_SPEC_ALIASES = {
+    "processor": ("processor", "cpu", "cpu_model", "processador"),
+    "gpu": ("gpu", "graphics", "graphics_card", "placa de video", "video card"),
+    "ram": ("ram", "memory", "memoria", "memória"),
+    "storage": ("storage", "ssd", "hdd", "disco", "armazenamento"),
+}
+
+
+def extract_product_specs(payload: Any) -> dict[str, Optional[str]]:
+    """Pull display specs from a snapshot payload without inventing values."""
+    data = payload if isinstance(payload, dict) else {}
+    specs = data.get("specs") if isinstance(data.get("specs"), dict) else {}
+    lowered = {str(k).strip().lower(): v for k, v in specs.items()}
+    out: dict[str, Optional[str]] = {}
+    for field, aliases in _SPEC_ALIASES.items():
+        value = None
+        for alias in aliases:
+            raw = data.get(alias)
+            if raw not in (None, "", []):
+                value = str(raw).strip()
+                break
+            raw = lowered.get(alias)
+            if raw not in (None, "", []):
+                value = str(raw).strip()
+                break
+        out[field] = value or None
+    return out
 
 
 def list_sku_rows(
@@ -122,6 +156,7 @@ def list_sku_rows(
         ph = price_by_id.get(p.id)
         snap = snap_by_id.get(p.id)
         evidence = None
+        specs = extract_product_specs(snap.raw_payload if snap is not None else None)
         if snap is not None and isinstance(snap.raw_payload, dict):
             ev = snap.raw_payload.get("evidence")
             if isinstance(ev, dict):
@@ -147,6 +182,11 @@ def list_sku_rows(
                 ),
                 evidence_status=evidence,
                 is_active=bool(p.is_active),
+                processor=specs.get("processor"),
+                gpu=specs.get("gpu"),
+                ram=specs.get("ram"),
+                storage=specs.get("storage"),
+                is_on_promotion=bool(ph.is_on_promotion) if ph is not None else False,
             )
         )
     return out
@@ -217,8 +257,10 @@ def product_detail(session: Session, product_id: int) -> dict[str, Any]:
 
     evidence = None
     image_url = None
+    specs = extract_product_specs(None)
     if snapshots and isinstance(snapshots[0].raw_payload, dict):
         payload = snapshots[0].raw_payload
+        specs = extract_product_specs(payload)
         evidence = payload.get("evidence")
         image_url = (
             payload.get("image_url")
@@ -236,4 +278,94 @@ def product_detail(session: Session, product_id: int) -> dict[str, Any]:
         "banners": banners,
         "evidence": evidence,
         "image_url": image_url,
+        "specs": specs,
     }
+
+
+def attribute_coverage(session: Session, *, filters: DashboardFilters, limit: int = 2000) -> list[dict[str, Any]]:
+    """Coverage of stored catalog attributes among latest product snapshots."""
+    rows = list_sku_rows(session, filters=filters, limit=limit)
+    total = len(rows)
+    if total == 0:
+        return []
+
+    def _pct(present: int) -> float:
+        return 100.0 * present / total
+
+    present = {
+        "Processor": sum(1 for r in rows if r.processor),
+        "Graphics": sum(1 for r in rows if r.gpu),
+        "RAM": sum(1 for r in rows if r.ram),
+        "Storage": sum(1 for r in rows if r.storage),
+        "Price": sum(1 for r in rows if r.current_price is not None),
+        "Brand": sum(1 for r in rows if r.brand),
+    }
+    return [
+        {"attribute": name, "coverage_pct": _pct(count), "present": count, "total": total}
+        for name, count in present.items()
+    ]
+
+
+def badge_coverage_matrix(session: Session) -> list[dict[str, Any]]:
+    """Brand × configured platform-family coverage from stored badge observations.
+
+    N/A when a brand has no badge evidence. 0% when inspected products exist
+    but the family was not detected.
+    """
+    from collector.config_loader import load_badges
+    from dashboard.presentation import TRACKED_PLATFORM_BRANDS
+
+    families = list(load_badges().get("platform_families") or [])
+    products = list(
+        session.scalars(select(Product).where(Product.is_active.is_(True))).all()
+    )
+    brand_ids: dict[str, set[int]] = {b: set() for b in TRACKED_PLATFORM_BRANDS}
+    for product in products:
+        if product.brand in brand_ids:
+            brand_ids[product.brand].add(product.id)
+
+    badge_rows = session.execute(select(Badge.product_id, Badge.badge_code)).all()
+    evidence_ids: dict[str, set[int]] = {b: set() for b in TRACKED_PLATFORM_BRANDS}
+    family_ids: dict[str, set[int]] = {str(f.get("code")): set() for f in families}
+    product_brand = {p.id: p.brand for p in products}
+    for product_id, code in badge_rows:
+        brand = product_brand.get(product_id)
+        if brand in evidence_ids:
+            evidence_ids[brand].add(product_id)
+        if code and code in family_ids:
+            family_ids[code].add(product_id)
+
+    out: list[dict[str, Any]] = []
+    for family in families:
+        brand = str(family.get("brand") or "")
+        code = str(family.get("code") or "")
+        name = str(family.get("name") or code)
+        inspected = evidence_ids.get(brand) or set()
+        if not inspected:
+            out.append(
+                {
+                    "brand": brand,
+                    "badge": name,
+                    "code": code,
+                    "rate": None,
+                    "display": "N/A",
+                    "state": "N/A",
+                }
+            )
+            continue
+        detected = len(family_ids.get(code, set()) & inspected)
+        rate = detected / len(inspected)
+        pct = rate * 100.0
+        from dashboard.presentation import badge_coverage_state
+
+        out.append(
+            {
+                "brand": brand,
+                "badge": name,
+                "code": code,
+                "rate": rate,
+                "display": f"{pct:.0f}%",
+                "state": badge_coverage_state(rate),
+            }
+        )
+    return out

@@ -1,72 +1,48 @@
-"""Global filter controls."""
+"""Compact in-page filter controls."""
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
 from typing import Optional
 
 import streamlit as st
 
-from dashboard.filters import DashboardFilters, default_filters
+from dashboard.presentation import RETAILER_LABELS, STRATA, STRATUM_LABELS, retailer_label, stratum_label
 
 
-def _to_dt(d: Optional[date], end: bool = False) -> Optional[datetime]:
-    if d is None:
+def select_retailer(key: str, options: list[str], *, label: str = "Retailer") -> Optional[str]:
+    codes = options or list(RETAILER_LABELS.keys())
+    labels = ["All"] + [retailer_label(c) for c in codes]
+    values: list[Optional[str]] = [None] + list(codes)
+    picked = st.selectbox(label, labels, key=key)
+    return values[labels.index(picked)]
+
+
+def select_stratum(key: str, *, label: str = "Stratum") -> Optional[str]:
+    labels = ["All"] + [STRATUM_LABELS[s] for s in STRATA]
+    values: list[Optional[str]] = [None] + list(STRATA)
+    picked = st.selectbox(label, labels, key=key)
+    return values[labels.index(picked)]
+
+
+def select_brand(key: str, options: list[str], *, label: str = "Brand") -> Optional[str]:
+    labels = ["All"] + options
+    picked = st.selectbox(label, labels, key=key)
+    return None if picked == "All" else picked
+
+
+def select_keyword(key: str, options: list[str], *, label: str = "Keyword") -> Optional[str]:
+    if not options:
         return None
-    t = time(23, 59, 59) if end else time(0, 0, 0)
-    return datetime.combine(d, t, tzinfo=timezone.utc)
+    labels = ["All"] + options
+    picked = st.selectbox(label, labels, key=key)
+    return None if picked == "All" else picked
 
 
-def render_global_filters(options: dict[str, list[str]]) -> DashboardFilters:
-    if st.session_state.pop("filters_clear", False):
-        st.session_state.pop("filter_retailer", None)
-        st.session_state.pop("filter_country", None)
-        st.session_state.pop("filter_ptype", None)
-        st.session_state.pop("filter_brand", None)
-        st.session_state.pop("filter_oem", None)
-        st.session_state.pop("filter_dates", None)
-
-    defaults = default_filters()
-    st.markdown("##### Filters")
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-
-    def _select(col, label: str, key: str, values: list[str]):
-        with col:
-            choices = ["(all)"] + values
-            picked = st.selectbox(label, choices, key=key)
-            return None if picked == "(all)" else picked
-
-    retailer = _select(c1, "Retailer", "filter_retailer", options.get("retailer_code", []))
-    country = _select(c2, "Country", "filter_country", options.get("country_code", []))
-    ptype = _select(c3, "Product Type", "filter_ptype", options.get("product_type", []))
-    brand = _select(c4, "Brand", "filter_brand", options.get("brand", []))
-    oem = _select(c5, "OEM", "filter_oem", options.get("oem", []))
-
-    with c6:
-        default_range = (
-            defaults.date_from.date() if defaults.date_from else date.today(),
-            defaults.date_to.date() if defaults.date_to else date.today(),
-        )
-        dates = st.date_input(
-            "Date Range",
-            value=st.session_state.get("filter_dates", default_range),
-            key="filter_dates_widget",
-        )
-        st.session_state["filter_dates"] = dates
-
-    date_from = date_to = None
-    if isinstance(dates, tuple) and len(dates) == 2:
-        date_from, date_to = _to_dt(dates[0], False), _to_dt(dates[1], True)
-    elif isinstance(dates, date):
-        date_from = _to_dt(dates, False)
-        date_to = _to_dt(dates, True)
-
-    return DashboardFilters(
-        retailer_code=retailer,
-        country_code=country,
-        product_type=ptype,
-        brand=brand,
-        oem=oem,
-        date_from=date_from,
-        date_to=date_to,
-    )
+def select_currency(key: str, currencies: list[str], *, label: str = "Currency") -> Optional[str]:
+    if not currencies:
+        return None
+    if len(currencies) == 1:
+        st.selectbox(label, currencies, key=key, disabled=True)
+        return currencies[0]
+    preferred = "USD" if "USD" in currencies else currencies[0]
+    return st.selectbox(label, currencies, index=currencies.index(preferred), key=key)

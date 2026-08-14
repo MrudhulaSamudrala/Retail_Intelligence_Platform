@@ -151,6 +151,114 @@ def specs_from_feature_bullets(features: list[str] | None) -> dict[str, str]:
     return specs
 
 
+async def extract_badge_signals(page) -> dict[str, Any]:
+    """Collect observed Newegg DOM alt/title/badge text. Does not infer families."""
+    try:
+        payload = await page.evaluate(
+            """() => {
+              const take = (nodes, attr) => {
+                const out = [];
+                for (const el of nodes) {
+                  const value = (attr ? el.getAttribute(attr) : (el.innerText || "")).trim();
+                  if (value && value.length < 240 && !out.includes(value)) out.push(value);
+                  if (out.length >= 40) break;
+                }
+                return out;
+              };
+              return {
+                img_alts: take(document.querySelectorAll("img[alt]"), "alt"),
+                img_titles: take(document.querySelectorAll("img[title]"), "title"),
+                element_titles: take(
+                  document.querySelectorAll("[class*='badge'][title], [class*='logo'][title]"),
+                  "title"
+                ),
+                aria_labels: take(
+                  document.querySelectorAll("[aria-label]"),
+                  "aria-label"
+                ),
+                badge_texts: take(
+                  document.querySelectorAll("[class*='badge'], [class*='brand-logo']"),
+                  null
+                ),
+              };
+            }"""
+        )
+    except Exception:  # noqa: BLE001
+        return {"inspected": False}
+    if not isinstance(payload, dict):
+        return {"inspected": False}
+    payload["inspected"] = True
+    return payload
+
+
+def listing_audit_from_card(
+    *,
+    title: Optional[str],
+    source_url: Optional[str],
+    listing_raw: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    raw = dict(listing_raw or {})
+    badge_texts = list(raw.get("badge_texts") or [])
+    return {
+        "title": raw.get("title") or title,
+        "tile_text": raw.get("tile_text"),
+        "badge_texts": badge_texts,
+        "selectors_used": ["listing_card"],
+        "source_url": source_url,
+        "available": True,
+    }
+
+
+def build_from_listing(
+    *,
+    retailer_code: str,
+    country_code: str,
+    currency: str,
+    sku: str,
+    source_url: str,
+    title: Optional[str] = None,
+    price_text: Optional[str] = None,
+    list_price_text: Optional[str] = None,
+    promo_text: Optional[str] = None,
+    category_raw: Optional[str] = None,
+    detail_page_status: str = "bot_challenge",
+    listing_raw: Optional[dict[str, Any]] = None,
+) -> Any:
+    """Listing-only Newegg product when the PDP was blocked. No fake PDP fields."""
+    listing_audit = listing_audit_from_card(
+        title=title, source_url=source_url, listing_raw=listing_raw
+    )
+    return build_normalized_product(
+        retailer_code=retailer_code,
+        country_code=country_code,
+        currency=currency,
+        retailer_sku=sku,
+        source_url=source_url,
+        title=title,
+        category_raw=category_raw,
+        price_text=price_text,
+        list_price_text=list_price_text,
+        promo_text=promo_text,
+        specs={},
+        raw_payload={
+            "source": "listing_card",
+            "detail_page_status": detail_page_status,
+            "listing_audit": listing_audit,
+            "pdp_audit": {
+                "badges_inspected": False,
+                "media_inspected": False,
+                "badge_texts": [],
+                "brand_media_signals": [],
+                "oem_media_signals": [],
+                "selectors_used": [],
+                "specs_available": False,
+                "access_reason": "PDP_BLOCKED",
+            },
+            "badge_signals": {},
+        },
+    )
+
+
 async def parse_product_page(
     page,
     *,
@@ -164,6 +272,7 @@ async def parse_product_page(
     fallback_promo: Optional[str] = None,
     category_raw: Optional[str] = None,
     listing_features: Optional[list[str]] = None,
+    listing_raw: Optional[dict[str, Any]] = None,
 ) -> Any:
     html = await page.content()
     if is_bot_challenge(html) or is_bot_challenge(await page.title()):
@@ -224,6 +333,24 @@ async def parse_product_page(
     except Exception:  # noqa: BLE001
         pass
 
+    badge_signals = await extract_badge_signals(page)
+    inspected = badge_signals.get("inspected") is True
+    listing_audit = listing_audit_from_card(
+        title=fallback_title or title,
+        source_url=page.url.split("?")[0],
+        listing_raw=listing_raw,
+    )
+    pdp_audit = {
+        "badges_inspected": inspected,
+        "media_inspected": inspected,
+        "badge_texts": list(badge_signals.get("badge_texts") or []),
+        "brand_media_signals": list(badge_signals.get("img_alts") or [])
+        + list(badge_signals.get("aria_labels") or []),
+        "oem_media_signals": list(badge_signals.get("img_alts") or [])
+        + list(badge_signals.get("img_titles") or []),
+        "selectors_used": list(PRODUCT_TITLE_SELECTORS) + list(SPEC_ROW_SELECTORS),
+        "specs_available": bool(specs),
+    }
     return build_normalized_product(
         retailer_code=retailer_code,
         country_code=country_code,
@@ -245,5 +372,15 @@ async def parse_product_page(
             "json_ld_present": bool(json_ld),
             "page_title": await page.title(),
             "listing_features": listing_features or [],
+            "detail_page_status": "ok",
+            "listing_audit": listing_audit,
+            "pdp_audit": pdp_audit,
+            "badge_signals": {
+                "badge_texts": pdp_audit["badge_texts"],
+                "img_alts": list(badge_signals.get("img_alts") or []),
+                "img_titles": list(badge_signals.get("img_titles") or []),
+                "element_titles": list(badge_signals.get("element_titles") or []),
+                "aria_labels": list(badge_signals.get("aria_labels") or []),
+            },
         },
     )

@@ -2,13 +2,54 @@
 
 from __future__ import annotations
 
+import html
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Sequence
 
 import streamlit as st
 
-from dashboard.utils.format import fmt_ts
 from dashboard.utils.semantics import DataState, MetricValue
+
+
+def kpi_card_html(
+    label: str,
+    metric: MetricValue,
+) -> str:
+    tip_parts = []
+    if metric.definition:
+        tip_parts.append(metric.definition)
+    if metric.source:
+        tip_parts.append(f"Source: {metric.source}")
+    if metric.denominator is not None:
+        tip_parts.append(f"Denominator: {metric.denominator}")
+    if metric.detail:
+        tip_parts.append(metric.detail)
+    tip = html.escape(" | ".join(tip_parts).replace('"', "'"))
+
+    value_class = "value"
+    if metric.display == "COMPLETE":
+        value_class = "value ci-val-ok"
+    elif metric.display == "PARTIAL":
+        value_class = "value ci-val-warn"
+
+    meta = ""
+    if metric.detail:
+        meta = f'<div class="meta">{html.escape(str(metric.detail))}</div>'
+    elif metric.state in {
+        DataState.PARTIAL,
+        DataState.BLOCKED,
+        DataState.UNKNOWN,
+        DataState.INSUFFICIENT,
+        DataState.NO_DATA,
+    }:
+        meta = f'<div class="meta">{html.escape(metric.state.value.replace("_", " ").title())}</div>'
+
+    return (
+        f'<div class="ci-kpi" title="{tip}">'
+        f'<div class="label">{html.escape(label)}</div>'
+        f'<div class="{value_class}">{html.escape(str(metric.display))}</div>'
+        f"{meta}</div>"
+    )
 
 
 def render_kpi_card(
@@ -19,45 +60,13 @@ def render_kpi_card(
     delta_direction: Optional[str] = None,
     timestamp: Optional[datetime] = None,
 ) -> None:
-    delta_class = "delta-neu"
-    if delta_direction == "up":
-        delta_class = "delta-pos"
-    elif delta_direction == "down":
-        delta_class = "delta-neg"
+    del delta_label, delta_direction, timestamp
+    st.markdown(kpi_card_html(label, metric), unsafe_allow_html=True)
 
-    tip_parts = []
-    if metric.definition:
-        tip_parts.append(metric.definition)
-    if metric.source:
-        tip_parts.append(f"Source: {metric.source}")
-    if metric.denominator is not None:
-        tip_parts.append(f"Denominator: {metric.denominator}")
-    if metric.detail:
-        tip_parts.append(metric.detail)
-    tip = " | ".join(tip_parts)
 
-    state_note = ""
-    if metric.state in {DataState.PARTIAL, DataState.BLOCKED, DataState.UNKNOWN, DataState.INSUFFICIENT, DataState.NO_DATA}:
-        state_note = f'<div class="meta">{metric.state.value}</div>'
-
-    delta_html = ""
-    if delta_label:
-        delta_html = f'<div class="{delta_class}">{delta_label}</div>'
-
-    ts_html = f'<div class="meta">Data: {fmt_ts(timestamp)}</div>' if timestamp else ""
-
-    st.markdown(
-        f"""
-        <div class="ci-kpi" title="{tip}">
-            <div class="label">{label}</div>
-            <div class="value">{metric.display}</div>
-            {delta_html}
-            {state_note}
-            {ts_html}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+def render_kpi_row(cards: Sequence[tuple[str, MetricValue]]) -> None:
+    inner = "".join(kpi_card_html(label, metric) for label, metric in cards)
+    st.markdown(f'<div class="ci-kpi-row">{inner}</div>', unsafe_allow_html=True)
 
 
 def comparison_delta(current, previous, *, as_pp: bool = False, already_ratio: bool = True):

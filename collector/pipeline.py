@@ -15,6 +15,32 @@ from collector.persist import CollectionPersister
 logger = logging.getLogger("collector.pipeline")
 
 
+def _compliance_persist_eligible(product) -> bool:
+    """Persist S1–P5 only for eligible computing types (shared classifier)."""
+    from collector.retailers.mercadolibre.classification import (
+        EXCLUDED,
+        OTHER_TYPE,
+        SUPPORTED_PRODUCT_TYPES,
+        classify_mercadolibre_product,
+        is_collection_eligible,
+    )
+
+    stored = (getattr(product, "product_type", None) or "").strip().lower()
+    if stored == OTHER_TYPE:
+        return False
+    classified = classify_mercadolibre_product(
+        title=getattr(product, "title", None),
+        category_raw=None,
+    )
+    if classified.status == EXCLUDED or classified.hard_negative:
+        return False
+    if classified.product_type == OTHER_TYPE:
+        return False
+    if stored in SUPPORTED_PRODUCT_TYPES:
+        return True
+    return is_collection_eligible(classified)
+
+
 class CollectionPipeline:
     """Discover → enrich → normalize (adapter) → dedupe → persist."""
 
@@ -235,6 +261,26 @@ class CollectionPipeline:
             outcome.discovery_stats = stats
             status = run_status_from_completeness(str(completeness))
             items_collected = outcome.observed
+            try:
+                self._persist_stratified_search_observations(run_id, outcome)
+                self.session.commit()
+            except Exception as exc:  # noqa: BLE001
+                logger.exception(
+                    "stratified_search_observations_persist_failed",
+                    extra={
+                        "event": "stratified_search_observations_persist_failed",
+                        "retailer": self.collector.code,
+                        "run_id": run_id,
+                        "error": str(exc),
+                    },
+                )
+                self.session.rollback()
+                persist_error = f"search_observations_persist_failed: {exc}"
+                error_message = (
+                    f"{error_message}; {persist_error}"
+                    if error_message
+                    else persist_error
+                )
         else:
             status = "completed"
             if error_message and not outcome.success:
@@ -273,6 +319,57 @@ class CollectionPipeline:
             },
         )
         return outcome
+
+    def _persist_stratified_search_observations(
+        self, run_id: int, outcome: CollectionOutcome
+    ) -> int:
+        """Write one search_observations row per observed stratified SERP slot."""
+        from collector.search.persist import persist_stratified_catalog_observations
+
+        universe = outcome.universe or {}
+        slots = list(universe.get("observations") or [])
+        if not slots:
+            logger.warning(
+                "stratified_search_observations_empty",
+                extra={
+                    "event": "stratified_search_observations_empty",
+                    "retailer": self.collector.code,
+                    "run_id": run_id,
+                    "observed": outcome.observed,
+                },
+            )
+            return 0
+        written = persist_stratified_catalog_observations(
+            self.session,
+            collection_run_id=run_id,
+            retailer_code=self.collector.code,
+            country_code=self.collector.country_code,
+            slots=slots,
+            strata_reports=list(universe.get("strata") or []),
+        )
+        logger.info(
+            "stratified_search_observations_persisted",
+            extra={
+                "event": "stratified_search_observations_persisted",
+                "retailer": self.collector.code,
+                "run_id": run_id,
+                "count": written,
+                "observed": outcome.observed,
+                "slots": len(slots),
+            },
+        )
+        if written != len(slots):
+            logger.error(
+                "stratified_search_observations_count_mismatch",
+                extra={
+                    "event": "stratified_search_observations_count_mismatch",
+                    "retailer": self.collector.code,
+                    "run_id": run_id,
+                    "written": written,
+                    "slots": len(slots),
+                },
+            )
+        return written
 
     async def _collect_observed_universe(
         self,
@@ -324,13 +421,6 @@ class CollectionPipeline:
 
         def _stamp(product, candidate, bucket: str, observed_at, *, position: int) -> None:
             attach_observation_classification(product)
-            from collector.classification import classify_product
-
-            identity = classify_product(
-                title=product.title,
-                processor=product.processor,
-                product_type=product.product_type,
-            )
             raw = dict(product.raw_payload or {})
             cand_raw = candidate.raw if isinstance(candidate.raw, dict) else {}
             clf = raw.get("classification") if isinstance(raw.get("classification"), dict) else {}
@@ -359,8 +449,8 @@ class CollectionPipeline:
                 "repeat_promotion": bool(cand_raw.get("repeat_promotion")),
                 "used_fallback": bool(cand_raw.get("used_fallback")),
                 "discovery_surface": cand_raw.get("discovery_surface"),
-                "brand_evidence": identity.brand_reason,
-                "oem_evidence": identity.oem_reason,
+                "brand_evidence": clf.get("brand_reason"),
+                "oem_evidence": clf.get("oem_reason"),
                 "product_type_evidence": (clf or {}).get("reasons"),
                 "gaming": bool((clf or {}).get("gaming")),
                 "exclusion_reason": (clf or {}).get("exclusion_reason"),
@@ -426,10 +516,10 @@ class CollectionPipeline:
 
             try:
                 product = await self.collector.fetch_product(browser, candidate)
+                attach_observation_classification(product)
                 bucket = observation_bucket(product)
                 observed_at = datetime.now(timezone.utc)
                 _stamp(product, candidate, bucket, observed_at, position=position)
-                bucket = observation_bucket(product)
                 product_id = self.persister.save_product(
                     product,
                     collection_run_id=run_id,
@@ -547,17 +637,6 @@ class CollectionPipeline:
             observations=slot_records,
             inaccessible_scope="candidate",
         )
-        from collector.search.persist import persist_stratified_catalog_observations
-
-        persist_stratified_catalog_observations(
-            self.session,
-            collection_run_id=run_id,
-            retailer_code=self.collector.code,
-            country_code=self.collector.country_code,
-            slots=slot_records,
-            strata_reports=strata,
-        )
-        self.session.commit()
         logger.info(
             "collection_universe",
             extra={
@@ -582,8 +661,15 @@ class CollectionPipeline:
         collection_run_id: int,
         observed_at,
     ) -> None:
-        """Append badge/audit rows from captured ML evidence. Newegg is unchanged."""
-        if product.retailer_code != "mercadolibre":
+        """Append badge/audit rows from captured listing/PDP evidence.
+
+        Mercado Libre and Newegg share ``CollectionPersister.save_audits`` /
+        ``save_badges`` and the S1–P5 engine. EXCLUDED / ``other`` products are
+        not written as normal compliance observations.
+        """
+        if product.retailer_code not in {"mercadolibre", "newegg"}:
+            return
+        if not _compliance_persist_eligible(product):
             return
         raw = product.raw_payload or {}
         listing = raw.get("listing_audit") if isinstance(raw.get("listing_audit"), dict) else {}

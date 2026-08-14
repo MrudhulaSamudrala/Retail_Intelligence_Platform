@@ -368,3 +368,92 @@ def test_old_keyword_observations_remain_and_are_distinct(session: Session) -> N
     assert session.scalar(select(func.count()).select_from(SearchObservation)) == 3
     # No product identity invented for the new SKU unless it already existed.
     assert products.get_by_retailer_sku("newegg", "US", "NEW-SKU") is None
+
+
+def test_one_hundred_observed_slots_write_one_hundred_rows(session: Session) -> None:
+    run_id = _run(session)
+    budgets = {
+        "notebook": 20,
+        "desktop": 20,
+        "workstation": 20,
+        "tablet": 20,
+        "gpu": 10,
+        "cpu": 10,
+    }
+    queries = {
+        "notebook": "gaming laptop",
+        "desktop": "gaming desktop",
+        "workstation": "gaming workstation",
+        "tablet": "gaming tablet",
+        "gpu": "gaming graphics card",
+        "cpu": "gaming processor",
+    }
+    slots = []
+    for stratum, budget in budgets.items():
+        for pos in range(1, budget + 1):
+            if stratum == "workstation" and pos == 7:
+                bucket = "EXCLUDED"
+                title = 'Electric RGB Gaming Standing Desk 55"'
+                sku = f"DESK-{pos}"
+            elif stratum == "workstation" and pos == 8:
+                bucket = "DUPLICATE"
+                title = "Dell Precision Gaming Workstation 1"
+                sku = "WORKSTATION1"
+            else:
+                bucket = "VALID"
+                title = f"Gaming {stratum} product {pos}"
+                sku = f"{stratum.upper()}{pos}"
+            slots.append(
+                _slot(
+                    stratum=stratum,
+                    query=queries[stratum],
+                    position=pos,
+                    sku=sku,
+                    title=title,
+                    bucket=bucket,
+                    universe_slot=len(slots) + 1,
+                )
+            )
+    reports = [
+        {
+            "stratum": name,
+            "query": query,
+            "observed": budget,
+            "requested": budget,
+            "completeness": "COMPLETE",
+            "search_status": "OK",
+            "used_fallback": False,
+        }
+        for name, (query, budget) in (
+            (n, (queries[n], budgets[n])) for n in budgets
+        )
+    ]
+    n = persist_stratified_catalog_observations(
+        session,
+        collection_run_id=run_id,
+        retailer_code="newegg",
+        country_code="US",
+        slots=slots,
+        strata_reports=reports,
+    )
+    session.commit()
+    assert n == 100
+    rows = list(session.scalars(select(SearchObservation)))
+    assert len(rows) == 100
+    assert all(r.observation_source == SOURCE_STRATIFIED_CATALOG for r in rows)
+    assert all(r.collection_run_id == run_id for r in rows)
+    assert all(r.retailer_code == "newegg" and r.country_code == "US" for r in rows)
+    excluded = [r for r in rows if (r.details or {}).get("excluded")]
+    duplicates = [r for r in rows if (r.details or {}).get("duplicate")]
+    assert len(excluded) == 1
+    assert excluded[0].position == 7
+    assert excluded[0].stratum == "workstation"
+    assert len(duplicates) == 1
+    assert duplicates[0].position == 8
+    assert duplicates[0].retailer_sku == "WORKSTATION1"
+    by_stratum = {}
+    for row in rows:
+        by_stratum.setdefault(row.stratum, []).append(row.position)
+    assert sorted(by_stratum["notebook"]) == list(range(1, 21))
+    assert sorted(by_stratum["cpu"]) == list(range(1, 11))
+

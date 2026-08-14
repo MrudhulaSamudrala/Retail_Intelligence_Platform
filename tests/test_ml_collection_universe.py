@@ -34,7 +34,7 @@ from collector.retailers.mercadolibre.discovery import (
 )
 from collector.retailers.mercadolibre.product_page import build_from_listing
 from collector.classification import OTHER, UNKNOWN, classify_brand
-from database.models import Base, Product, ProductSnapshot
+from database.models import Base, Product, ProductSnapshot, SearchObservation
 
 
 @pytest.fixture()
@@ -351,6 +351,17 @@ def test_pipeline_observed_limit_and_identity(session: Session) -> None:
     dup_rows = [row for row in obs if row.get("bucket") == "DUPLICATE"]
     assert dup_rows
     assert dup_rows[0]["search_position"] == 9
+    search_rows = session.scalars(
+        select(SearchObservation).where(
+            SearchObservation.collection_run_id == outcome.collection_run_id
+        )
+    ).all()
+    assert len(search_rows) == 10
+    assert {r.observation_source for r in search_rows} == {"stratified_catalog"}
+    assert {r.country_code for r in search_rows} == {"BR"}
+    assert {r.retailer_code for r in search_rows} == {"mercadolibre"}
+    assert any((r.details or {}).get("duplicate") for r in search_rows)
+    assert any((r.details or {}).get("excluded") for r in search_rows)
     # Excluded were not replaced by MLB10
     skus = {p.retailer_sku for p in outcome.success}
     assert "MLB10" not in skus
@@ -805,7 +816,70 @@ def test_stratified_universe_complete_when_all_strata_hit_budget(session: Sessio
     assert desktop_native[0] == 1
     slots = [row["universe_slot"] for row in u["observations"]]
     assert slots == list(range(1, 101))
-    assert slots[-1] != desktop_native[-1] or True  # slot is not the native rank
+    search_rows = session.scalars(
+        select(SearchObservation).where(
+            SearchObservation.collection_run_id == outcome.collection_run_id
+        )
+    ).all()
+    assert len(search_rows) == 100
+    assert all(r.observation_source == "stratified_catalog" for r in search_rows)
+    assert all(r.collection_run_id == outcome.collection_run_id for r in search_rows)
+    assert {r.stratum for r in search_rows} == {
+        "notebook",
+        "desktop",
+        "workstation",
+        "tablet",
+        "gpu",
+        "cpu",
+    }
+    notebook = [r for r in search_rows if r.stratum == "notebook"]
+    assert sorted(r.position for r in notebook) == list(range(1, 21))
+    assert all(r.keyword == "gaming laptop" for r in notebook)
+    assert all(r.retailer_code == "newegg" and r.country_code == "US" for r in search_rows)
+    assert sum(1 for r in search_rows if r.product_id is not None) == 100
+
+
+def test_pipeline_persists_excluded_and_duplicate_slots_in_100_universe(
+    session: Session,
+) -> None:
+    catalog = _full_stratum_catalog()
+    catalog["workstation"][6] = (
+        "DESK7",
+        'Electric RGB Gaming Standing Desk 55" Adjustable',
+        "gaming workstation",
+    )
+    catalog["workstation"][7] = catalog["workstation"][0]
+    collector = _FakeStratifiedCollector(catalog)
+    outcome = asyncio.run(CollectionPipeline(session, collector).run(limit=100))
+    assert outcome.universe["observed"] == 100
+    rows = session.scalars(
+        select(SearchObservation).where(
+            SearchObservation.collection_run_id == outcome.collection_run_id
+        )
+    ).all()
+    assert len(rows) == 100
+    ws = [r for r in rows if r.stratum == "workstation"]
+    assert len(ws) == 20
+    excluded = [
+        r
+        for r in ws
+        if (r.details or {}).get("excluded")
+        or (r.details or {}).get("slot_status") == "EXCLUDED"
+    ]
+    duplicates = [
+        r
+        for r in ws
+        if (r.details or {}).get("duplicate")
+        or (r.details or {}).get("slot_status") == "DUPLICATE"
+    ]
+    assert len(excluded) == 1
+    assert excluded[0].position == 7
+    assert excluded[0].retailer_sku == "DESK7"
+    assert len(duplicates) == 1
+    assert duplicates[0].position == 8
+    assert duplicates[0].retailer_sku == "WORKSTATION1"
+    assert all(r.observation_source == "stratified_catalog" for r in rows)
+    assert all(r.collection_run_id == outcome.collection_run_id for r in rows)
 
 
 def test_overall_partial_when_one_stratum_short(session: Session) -> None:

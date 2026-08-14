@@ -79,16 +79,46 @@ _EXTRACT_CANDIDATES_JS = """
       if (!visible(el)) continue;
       seen.add(el);
 
-      const imgs = Array.from(el.querySelectorAll('img')).slice(0, 4);
+      const imgs = Array.from(el.querySelectorAll('img')).slice(0, 6);
       const alts = imgs.map(i => i.getAttribute('alt') || '').filter(Boolean);
       const titles = [
         el.getAttribute('title') || '',
         ...imgs.map(i => i.getAttribute('title') || ''),
       ].filter(Boolean);
+      const imageUrls = [];
+      function pushUrl(v) {
+        if (!v || typeof v !== 'string') return;
+        const trimmed = v.trim();
+        if (!trimmed || trimmed.startsWith('data:')) return;
+        if (!imageUrls.includes(trimmed)) imageUrls.push(trimmed);
+      }
+      for (const i of imgs) {
+        pushUrl(i.currentSrc || '');
+        pushUrl(i.getAttribute('src') || '');
+        pushUrl(i.getAttribute('data-src') || '');
+        pushUrl(i.getAttribute('data-lazy') || '');
+        pushUrl(i.getAttribute('data-original') || '');
+        const srcset = i.getAttribute('srcset') || '';
+        if (srcset) pushUrl(srcset.split(',')[0].trim().split(/\\s+/)[0]);
+      }
+      const sources = Array.from(el.querySelectorAll('source')).slice(0, 4);
+      for (const s of sources) {
+        pushUrl(s.getAttribute('src') || '');
+        const srcset = s.getAttribute('srcset') || '';
+        if (srcset) pushUrl(srcset.split(',')[0].trim().split(/\\s+/)[0]);
+      }
+      let bgNode = el;
+      for (let d = 0; d < 3 && bgNode; d++) {
+        const bg = window.getComputedStyle(bgNode).backgroundImage || '';
+        const matches = bg.matchAll(/url\\((["']?)([^"')]+)\\1\\)/gi);
+        for (const m of matches) pushUrl(m[2]);
+        bgNode = bgNode.parentElement;
+      }
       const link = el.closest('a') || el.querySelector('a');
       const href = link ? (link.href || link.getAttribute('href') || '') : '';
       const text = (el.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 1200);
-      const aria = el.getAttribute('aria-label') || '';
+      const aria = el.getAttribute('aria-label')
+        || (link ? (link.getAttribute('aria-label') || '') : '');
       const ancestorHints = [];
       let p = el.parentElement;
       for (let i = 0; i < 4 && p; i++) {
@@ -105,6 +135,7 @@ _EXTRACT_CANDIDATES_JS = """
         alt: alts.join(' | '),
         title: titles.join(' | '),
         href: href,
+        image_url: imageUrls.slice(0, 8).join(' | '),
         selector: cssPath(el) || sel,
         ancestor_hints: ancestorHints,
         position: out.length + 1,

@@ -1,20 +1,22 @@
-"""SKU Explorer page."""
+"""SKU Explorer section."""
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 
 import pandas as pd
 import streamlit as st
 from sqlalchemy.orm import Session
 
-from dashboard.components.header import render_header
+from dashboard.components.filters_ui import select_brand, select_retailer, select_stratum
+from dashboard.components.layout import card, section_header
 from dashboard.components.tables import show_dataframe
-from dashboard.config import display_settings
 from dashboard.filters import DashboardFilters
+from dashboard.presentation import CHECK_CODES, CHECK_LABELS, retailer_label
 from dashboard.queries.catalog import list_sku_rows, product_detail
-from dashboard.queries.collection import CollectionStatusSnapshot
-from dashboard.utils.format import fmt_ts
+from dashboard.queries.collection import CollectionStatusSnapshot, filter_option_values
+from dashboard.utils.format import fmt_money, fmt_pct
 
 
 def render(
@@ -23,195 +25,139 @@ def render(
     collection: CollectionStatusSnapshot,
     refreshed_at: datetime | None,
 ) -> None:
-    render_header(
-        page_title="SKU Explorer",
-        subtitle="Product-level exploration over live PostgreSQL catalog and observations.",
-        collection=collection,
-        filters=filters,
-        analytics_refreshed_at=refreshed_at,
-    )
+    del collection, refreshed_at
+    with card():
+        section_header(
+            "SKU Explorer",
+            "Product-level traceability across catalog, compliance checks, and detected badges.",
+        )
+        options = filter_option_values(session)
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            retailer = select_retailer("sku_retailer", options.get("retailer_code", []))
+        with c2:
+            brand = select_brand("sku_brand", options.get("brand", []))
+        with c3:
+            product_type = select_stratum("sku_type", label="Product Type")
+        with c4:
+            promo = st.selectbox("Promotion", ["All", "On promo", "Not on promo"], key="sku_promo")
 
-    search = st.text_input("Search product / SKU / brand / OEM", value="")
-    limit = int(display_settings().get("max_table_rows", 500))
-    rows = list_sku_rows(session, filters=filters, search=search, limit=limit)
-    df = pd.DataFrame(
-        [
-            {
-                "product_id": r.product_id,
-                "product": r.title,
-                "sku": r.retailer_sku,
-                "brand": r.brand,
-                "oem": r.oem,
-                "retailer": r.retailer_code,
-                "country": r.country_code,
-                "product_type": r.product_type,
-                "current_price": float(r.current_price) if r.current_price is not None else None,
-                "currency": r.currency,
-                "discount": float(r.discount_pct) if r.discount_pct is not None else None,
-                "last_observed": r.last_observed_at,
-                "evidence_status": r.evidence_status or "—",
-                "url": r.url,
-            }
-            for r in rows
+        p1, p2, p3 = st.columns([2, 1, 1])
+        with p1:
+            search = st.text_input("Search product / SKU / model", value="", key="sku_search")
+        with p2:
+            min_price = st.number_input("Min price", min_value=0.0, value=0.0, step=50.0, key="sku_min_price")
+        with p3:
+            max_price = st.number_input("Max price", min_value=0.0, value=0.0, step=50.0, key="sku_max_price")
+
+        scoped = replace(
+            filters,
+            retailer_code=retailer,
+            brand=brand,
+            product_type=product_type,
+            stratum=product_type,
+        )
+        rows = list_sku_rows(session, filters=scoped, search=search, limit=400)
+        if promo == "On promo":
+            rows = [r for r in rows if r.is_on_promotion]
+        elif promo == "Not on promo":
+            rows = [r for r in rows if not r.is_on_promotion]
+        if min_price:
+            rows = [r for r in rows if r.current_price is not None and float(r.current_price) >= min_price]
+        if max_price:
+            rows = [r for r in rows if r.current_price is not None and float(r.current_price) <= max_price]
+
+        table = pd.DataFrame(
+            [
+                {
+                    "product_id": r.product_id,
+                    "Product": r.title or r.retailer_sku,
+                    "Brand": r.brand or "—",
+                    "Type": r.product_type or "—",
+                    "Processor": r.processor or "—",
+                    "GPU": r.gpu or "—",
+                    "RAM": r.ram or "—",
+                    "Storage": r.storage or "—",
+                    "Price": fmt_money(r.current_price, r.currency) if r.current_price is not None else "N/A",
+                    "Promotion": "Yes" if r.is_on_promotion else "No",
+                    "Retailer": retailer_label(r.retailer_code),
+                }
+                for r in rows
+            ]
+        )
+        show_dataframe(
+            table.drop(columns=["product_id"]) if not table.empty else table,
+            empty_message="No products match these filters.",
+            empty_explanation="Adjust retailer, brand, type, promotion, or search.",
+            height=360,
+        )
+        if not rows:
+            return
+
+        labels = [
+            f"{r.product_id} | {(r.title or r.retailer_sku or '')[:70]}"
+            for r in rows[:200]
         ]
-    )
-    st.caption(
-        "Share of Shelf / Visibility / Compliance Score columns are available in detail panel "
-        "(computed from analytics for the selected product)."
-    )
-    show_dataframe(df, empty_message="No products match the selected filters/search.")
+        picked = st.selectbox("Select a product", ["(select)"] + labels, key="sku_pick")
+        if picked == "(select)":
+            return
 
-    if df.empty:
-        return
+        product_id = int(picked.split("|", 1)[0].strip())
+        detail = product_detail(session, product_id)
+        if detail.get("error"):
+            st.error(detail["error"])
+            return
 
-    options = [
-        f"{r.product_id} | {r.retailer_code} | {r.retailer_sku} | {(r.title or '')[:60]}"
-        for r in rows
-    ]
-    picked = st.selectbox("Select product for detail panel", options=["(select)"] + options)
-    if picked == "(select)":
-        return
-
-    product_id = int(picked.split("|", 1)[0].strip())
-    detail = product_detail(session, product_id)
-    if detail.get("error"):
-        st.error(detail["error"])
-        return
-
-    product = detail["product"]
-    left, right = st.columns([2, 1])
-    with left:
-        st.markdown(f"### {product.title or product.retailer_sku}")
+        product = detail["product"]
+        specs = detail.get("specs") or {}
+        latest_price = detail["prices"][0] if detail.get("prices") else None
+        st.markdown("**Product detail**")
         st.write(
             {
-                "retailer": product.retailer_code,
-                "country": product.country_code,
-                "sku": product.retailer_sku,
-                "brand": product.brand,
-                "oem": product.oem,
-                "product_type": product.product_type,
-                "url": product.canonical_url,
-                "last_seen": fmt_ts(product.last_seen_at),
+                "Product": product.title or product.retailer_sku,
+                "Brand": product.brand,
+                "OEM": product.oem,
+                "Processor": specs.get("processor") or "—",
+                "GPU": specs.get("gpu") or "—",
+                "RAM": specs.get("ram") or "—",
+                "Storage": specs.get("storage") or "—",
+                "Price": fmt_money(latest_price.price_amount, latest_price.currency) if latest_price else "N/A",
+                "Discount": fmt_pct(latest_price.discount_pct, already_ratio=False) if latest_price and latest_price.discount_pct is not None else "N/A",
             }
         )
-        if product.canonical_url:
-            st.markdown(f"[Open retailer product page]({product.canonical_url})")
-        if detail.get("evidence"):
-            st.write("Evidence / access status:", detail["evidence"])
-    with right:
-        if detail.get("image_url"):
-            st.image(detail["image_url"], use_container_width=True)
-        else:
-            st.caption("No stored product image in latest snapshot payload.")
 
-    tabs = st.tabs(
-        [
-            "Price history",
-            "Audits",
-            "Badges",
-            "Visibility",
-            "Banners (retailer)",
-            "Snapshots / collection",
-        ]
-    )
-    with tabs[0]:
+        latest_by_code = {}
+        for audit in detail.get("audits") or []:
+            if audit.check_code not in latest_by_code:
+                latest_by_code[audit.check_code] = audit.result
+        compliance_row = {
+            code: latest_by_code.get(code) or "N/A"
+            for code in CHECK_CODES
+        }
+        st.markdown("**Compliance**")
         show_dataframe(
             pd.DataFrame(
                 [
                     {
-                        "observed_at": p.observed_at,
-                        "price": float(p.price_amount) if p.price_amount is not None else None,
-                        "list_price": float(p.list_price) if p.list_price is not None else None,
-                        "discount_pct": float(p.discount_pct) if p.discount_pct is not None else None,
-                        "currency": p.currency,
-                        "on_promo": p.is_on_promotion,
+                        "Check": code,
+                        "Name": CHECK_LABELS.get(code, code),
+                        "Result": compliance_row[code],
                     }
-                    for p in detail["prices"]
+                    for code in CHECK_CODES
                 ]
             ),
-            empty_message="No price history.",
+            height=260,
         )
-    with tabs[1]:
-        show_dataframe(
-            pd.DataFrame(
-                [
-                    {
-                        "check": a.check_code,
-                        "result": a.result,
-                        "evidence": a.evidence_text,
-                        "reason": (a.details or {}).get("reason") if isinstance(a.details, dict) else None,
-                        "observed_at": a.observed_at,
-                    }
-                    for a in detail["audits"]
-                ]
-            ),
-            empty_message="No audit results.",
+
+        badge_names = sorted(
+            {
+                (b.badge_text or b.badge_code or "").strip()
+                for b in (detail.get("badges") or [])
+                if (b.badge_text or b.badge_code)
+            }
         )
-    with tabs[2]:
-        show_dataframe(
-            pd.DataFrame(
-                [
-                    {
-                        "badge_code": b.badge_code,
-                        "badge_text": b.badge_text,
-                        "is_relevant": b.is_relevant,
-                        "notes": b.relevance_notes,
-                        "observed_at": b.observed_at,
-                    }
-                    for b in detail["badges"]
-                ]
-            ),
-            empty_message="No badge observations.",
-        )
-    with tabs[3]:
-        show_dataframe(
-            pd.DataFrame(
-                [
-                    {
-                        "keyword": s.keyword,
-                        "position": s.position,
-                        "sponsored": s.is_sponsored,
-                        "status": s.collection_status,
-                        "observed_at": s.observed_at,
-                    }
-                    for s in detail["searches"]
-                ]
-            ),
-            empty_message="No search visibility observations for this SKU.",
-        )
-    with tabs[4]:
-        show_dataframe(
-            pd.DataFrame(
-                [
-                    {
-                        "brand_detected": b.brand_detected,
-                        "headline": b.headline_text,
-                        "observed_at": b.observed_at,
-                        "page_type": getattr(b, "page_type", None),
-                    }
-                    for b in detail["banners"]
-                ]
-            ),
-            empty_message="No banner observations for this retailer/country.",
-        )
-    with tabs[5]:
-        show_dataframe(
-            pd.DataFrame(
-                [
-                    {
-                        "observed_at": s.observed_at,
-                        "title": s.title,
-                        "price": float(s.price_amount) if s.price_amount is not None else None,
-                        "currency": s.currency,
-                        "run_id": s.collection_run_id,
-                        "evidence": (
-                            (s.raw_payload or {}).get("evidence")
-                            if isinstance(s.raw_payload, dict)
-                            else None
-                        ),
-                    }
-                    for s in detail["snapshots"]
-                ]
-            ),
-            empty_message="No snapshots.",
-        )
+        st.markdown("**Detected badges**")
+        if badge_names:
+            st.write(", ".join(badge_names[:20]))
+        else:
+            st.caption("N/A — no badge evidence for this SKU.")
