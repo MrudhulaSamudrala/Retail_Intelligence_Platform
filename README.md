@@ -10,28 +10,46 @@ It collects product, pricing, visibility, compliance, badge, banner, and search 
 
 BridgeAI provides an interactive Streamlit dashboard for monitoring competitive retail presence, product data quality, share of shelf, and brand compliance.
 
-| Retail Homepage Presence | Product Data Quality |
-| --- | --- |
-| <img src="assets/dashboard/Homepage_presence.png" alt="Retail Homepage Presence" width="450"> | <img src="assets/dashboard/Product_data_quality.png" alt="Product Data Quality" width="450"> |
+<table>
+<tr>
+<td align="center">
+<strong>Retail Homepage Presence</strong><br>
+<img src="assets/dashboard/Homepage_presence.png" width="450">
+</td>
+<td align="center">
+<strong>Product Data Quality</strong><br>
+<img src="assets/dashboard/Product_data_quality.png" width="450">
+</td>
+</tr>
+<tr>
+<td align="center">
+<strong>Share of Shelf</strong><br>
+<img src="assets/dashboard/Shelf_presence.png" width="450">
+</td>
+<td align="center">
+<strong>Brand Compliance</strong><br>
+<img src="assets/dashboard/Brand_compliance.png" width="450">
+</td>
+</tr>
+</table>
 
-| Share of Shelf | Brand Compliance |
-| --- | --- |
-| <img src="assets/dashboard/Shelf_presence.png" alt="Share of Shelf" width="450"> | <img src="assets/dashboard/Brand_compliance.png" alt="Brand Compliance" width="450"> |
 
 ---
 
 ## What BridgeAI Measures
 
-| Area | What it provides |
-| --- | --- |
-| Product Data | Product, processor, GPU, RAM, storage, price, and other attributes |
-| Share of Shelf | Brand share across eligible gaming products |
-| Search Visibility | Brand presence and ranking for tracked search keywords |
-| Pricing & Promotions | Product prices, discounts, and promotional observations |
-| Brand Compliance | S1, S2, P1–P5 compliance checks |
-| Badge Coverage | Brand-specific badge detection and coverage |
-| Banner Tracking | Homepage brand banners, links, discounts, and badges |
-| Product Explorer | SKU-level product investigation and traceability |
+
+| Area                 | What it provides                                                   |
+| -------------------- | ------------------------------------------------------------------ |
+| Product Data         | Product, processor, GPU, RAM, storage, price, and other attributes |
+| Share of Shelf       | Brand share across eligible gaming products                        |
+| Search Visibility    | Brand presence and ranking for tracked search keywords             |
+| Pricing & Promotions | Product prices, discounts, and promotional observations            |
+| Brand Compliance     | S1, S2, P1–P5 compliance checks                                    |
+| Badge Coverage       | Brand-specific badge detection and coverage                        |
+| Banner Tracking      | Homepage brand banners, links, discounts, and badges               |
+| Product Explorer     | SKU-level product investigation and traceability                   |
+
 
 ---
 
@@ -130,15 +148,17 @@ Brand Compliance measures how clearly **Intel, AMD, Qualcomm, and Apple** are pr
 
 Each audited product is evaluated with **7 checks**. A check is **PASS**, **FAIL**, or **UNKNOWN** (evidence could not be determined). UNKNOWN is excluded from pass rates. If a brand has no scored evidence, the dashboard shows **N/A**, not 0%.
 
-| Check | What is evaluated |
-| --- | --- |
-| S1 | Listing title includes the brand name and/or processor line |
-| S2 | Brand badge is present on the listing tile |
-| P1 | Product page title includes brand, processor line, or generation |
-| P2 | Brand badge is present on the product page |
-| P3 | Brand or processor line appears in the specification table |
-| P4 | Brand-led rich media is present on the product page |
-| P5 | OEM rich media is present on the product page |
+
+| Check | What is evaluated                                                |
+| ----- | ---------------------------------------------------------------- |
+| S1    | Listing title includes the brand name and/or processor line      |
+| S2    | Brand badge is present on the listing tile                       |
+| P1    | Product page title includes brand, processor line, or generation |
+| P2    | Brand badge is present on the product page                       |
+| P3    | Brand or processor line appears in the specification table       |
+| P4    | Brand-led rich media is present on the product page              |
+| P5    | OEM rich media is present on the product page                    |
+
 
 Scored checks (PASS/FAIL) are weighted **equally**. The overall score uses the existing segment weights: **notebook 85%** and **desktop 15%**. Coverage is reported separately as scored observations / eligible observations.
 
@@ -148,16 +168,18 @@ The dashboard shows an overall summary, one card per brand (pass rate, PASS/FAIL
 
 ## Data Interpretation
 
-| Topic | How to read it |
-| --- | --- |
-| Collection scope | Results reflect only data successfully observed during each collection run. |
-| Top 100 | Newegg results cover the configured top 100 products, not its complete catalog. |
-| Brand absence | A brand not observed in the collected products does not imply the retailer does not sell it. |
-| Partial coverage | Mercado Libre is currently PARTIAL; its metrics represent the successfully collected observations. |
-| Share of Shelf | Represents brand presence within the collected eligible products, not total retailer or market share. |
-| Data states | N/A, UNKNOWN, PARTIAL, and NOT AVAILABLE indicate different evidence/collection states and are not equivalent to zero. |
-| Search Visibility | Based on configured keywords and successfully collected search results. |
-| Historical Reports | Each report is scoped to its own collection run; missing components are not filled from other runs. |
+
+| Topic              | How to read it                                                                                                         |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| Collection scope   | Results reflect only data successfully observed during each collection run.                                            |
+| Top 100            | Newegg results cover the configured top 100 products, not its complete catalog.                                        |
+| Brand absence      | A brand not observed in the collected products does not imply the retailer does not sell it.                           |
+| Partial coverage   | Mercado Libre is currently PARTIAL; its metrics represent the successfully collected observations.                     |
+| Share of Shelf     | Represents brand presence within the collected eligible products, not total retailer or market share.                  |
+| Data states        | N/A, UNKNOWN, PARTIAL, and NOT AVAILABLE indicate different evidence/collection states and are not equivalent to zero. |
+| Search Visibility  | Based on configured keywords and successfully collected search results.                                                |
+| Historical Reports | Each report is scoped to its own collection run; missing components are not filled from other runs.                    |
+
 
 ---
 
@@ -195,13 +217,15 @@ Historical reports are preserved by collection run under `reports/`.
 
 ## Tech Stack
 
-| Layer | Technologies |
-| --- | --- |
-| Dashboard | Streamlit, Plotly |
-| Data | Python, PostgreSQL, SQLAlchemy, Pandas |
+
+| Layer      | Technologies                             |
+| ---------- | ---------------------------------------- |
+| Dashboard  | Streamlit, Plotly                        |
+| Data       | Python, PostgreSQL, SQLAlchemy, Pandas   |
 | Collection | Playwright, retailer-specific collectors |
-| Reports | Excel, PSV |
-| Automation | Windows Task Scheduler, PowerShell |
+| Reports    | Excel, PSV                               |
+| Automation | Windows Task Scheduler, PowerShell       |
+
 
 ---
 
