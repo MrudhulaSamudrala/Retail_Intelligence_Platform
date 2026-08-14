@@ -6,6 +6,20 @@ It collects product, pricing, visibility, compliance, badge, banner, and search 
 
 ---
 
+## Dashboard Preview
+
+BridgeAI provides an interactive Streamlit dashboard for monitoring competitive retail presence, product data quality, share of shelf, and brand compliance.
+
+| Retail Homepage Presence | Product Data Quality |
+| --- | --- |
+| <img src="assets/dashboard/Homepage_presence.png" alt="Retail Homepage Presence" width="450"> | <img src="assets/dashboard/Product_data_quality.png" alt="Product Data Quality" width="450"> |
+
+| Share of Shelf | Brand Compliance |
+| --- | --- |
+| <img src="assets/dashboard/Shelf_presence.png" alt="Share of Shelf" width="450"> | <img src="assets/dashboard/Brand_compliance.png" alt="Brand Compliance" width="450"> |
+
+---
+
 ## What BridgeAI Measures
 
 | Area | What it provides |
@@ -129,6 +143,21 @@ Each audited product is evaluated with **7 checks**. A check is **PASS**, **FAIL
 Scored checks (PASS/FAIL) are weighted **equally**. The overall score uses the existing segment weights: **notebook 85%** and **desktop 15%**. Coverage is reported separately as scored observations / eligible observations.
 
 The dashboard shows an overall summary, one card per brand (pass rate, PASS/FAIL counts, coverage), a check-by-check comparison, and the lowest-scoring checks where compliance is being lost.
+
+---
+
+## Data Interpretation
+
+| Topic | How to read it |
+| --- | --- |
+| Collection scope | Results reflect only data successfully observed during each collection run. |
+| Top 100 | Newegg results cover the configured top 100 products, not its complete catalog. |
+| Brand absence | A brand not observed in the collected products does not imply the retailer does not sell it. |
+| Partial coverage | Mercado Libre is currently PARTIAL; its metrics represent the successfully collected observations. |
+| Share of Shelf | Represents brand presence within the collected eligible products, not total retailer or market share. |
+| Data states | N/A, UNKNOWN, PARTIAL, and NOT AVAILABLE indicate different evidence/collection states and are not equivalent to zero. |
+| Search Visibility | Based on configured keywords and successfully collected search results. |
+| Historical Reports | Each report is scoped to its own collection run; missing components are not filled from other runs. |
 
 ---
 
