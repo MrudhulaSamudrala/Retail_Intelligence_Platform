@@ -57,7 +57,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--limit",
         type=int,
         default=None,
-        help="Max products per retailer (default from config/orchestration.yaml)",
+        help="Observed search-result positions per retailer (default: config/search_visibility.yaml search_universe_size)",
     )
     parser.add_argument(
         "--search-limit",
@@ -69,6 +69,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help="Validate DB/config/Playwright without inserting observations",
+    )
+    parser.add_argument(
+        "--stratum",
+        choices=["notebook", "desktop", "workstation", "tablet", "gpu", "cpu"],
+        default=None,
+        help="Collect a single stratum (controlled validation). Default: all strata.",
     )
     parser.add_argument(
         "--legacy-product-only",
@@ -86,7 +92,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
-async def _legacy_product_run(retailer: str, limit: int) -> int:
+async def _legacy_product_run(
+    retailer: str, limit: int, *, stratum: Optional[str] = None
+) -> int:
     from collector.pipeline import CollectionPipeline
 
     if retailer == "newegg":
@@ -98,6 +106,8 @@ async def _legacy_product_run(retailer: str, limit: int) -> int:
 
     logger = setup_logging()
     collector = build_collector()
+    if stratum:
+        collector.stratum_filter = stratum
     engine = get_engine()
     session_factory = get_session_factory(engine)
     session = session_factory()
@@ -119,6 +129,9 @@ async def _legacy_product_run(retailer: str, limit: int) -> int:
         "skipped_duplicates": len(outcome.skipped_duplicates),
         "skipped_irrelevant": len(outcome.skipped_irrelevant),
         "bot_blocked": outcome.bot_blocked,
+        "universe": outcome.universe or None,
+        "requested": outcome.requested,
+        "observed": outcome.observed,
     }
     print(json.dumps(summary, indent=2))
     logger.info(
@@ -129,7 +142,7 @@ async def _legacy_product_run(retailer: str, limit: int) -> int:
             "count": len(outcome.success),
         },
     )
-    return 0 if outcome.success else 1
+    return 0 if outcome.success or outcome.observed else 1
 
 
 async def _orchestrated_main(args: argparse.Namespace) -> int:
@@ -174,8 +187,12 @@ def main(argv: list[str] | None = None) -> None:
     load_dotenv()
     args = parse_args(argv)
     if args.legacy_product_only:
-        limit = args.limit if args.limit is not None else 20
-        code = asyncio.run(_legacy_product_run(args.retailer[0], limit))
+        from collector.universe_config import search_universe_size
+
+        limit = args.limit if args.limit is not None else search_universe_size()
+        code = asyncio.run(
+            _legacy_product_run(args.retailer[0], limit, stratum=args.stratum)
+        )
         raise SystemExit(code)
     raise SystemExit(asyncio.run(_orchestrated_main(args)))
 

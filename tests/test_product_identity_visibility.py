@@ -97,6 +97,9 @@ def _add_search(
     title: str,
     product_id: int | None = None,
     observed_at: datetime | None = None,
+    observation_source: str | None = "stratified_catalog",
+    stratum: str | None = "notebook",
+    brand: str = "AMD",
 ) -> None:
     session.add(
         SearchObservation(
@@ -107,10 +110,12 @@ def _add_search(
             retailer_sku=sku,
             title=title,
             product_id=product_id,
-            brand="AMD",
+            brand=brand,
             is_sponsored=False,
             collection_status="COMPLETE",
             observed_at=observed_at or datetime.now(timezone.utc),
+            observation_source=observation_source,
+            stratum=stratum,
         )
     )
 

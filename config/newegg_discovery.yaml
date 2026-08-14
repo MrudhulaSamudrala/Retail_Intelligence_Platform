@@ -1,16 +1,42 @@
-# Newegg US controlled collection scope for the prototype.
-# One clearly defined gaming-related search: Best Match "gaming laptop".
-# (Avoid Order=1 / Lowest Price — that surfaces accessories and junk listings.)
+# Newegg US stratified gaming-computing discovery.
+# Queries are category-generic. Brand is classified after observation.
 
 retailer_code: newegg
 country_code: US
 currency: USD
 
 discovery:
-  - name: gaming_laptops
+  - name: notebook
+    stratum: notebook
     product_type_hint: notebook
+    query: "gaming laptop"
     url: "https://www.newegg.com/p/pl?d=gaming+laptop"
+  - name: desktop
+    stratum: desktop
+    product_type_hint: desktop
+    query: "gaming desktop"
+    url: "https://www.newegg.com/p/pl?d=gaming+desktop"
+  - name: workstation
+    stratum: workstation
+    product_type_hint: workstation
+    query: "gaming workstation"
+    url: "https://www.newegg.com/p/pl?d=gaming+workstation"
+  - name: tablet
+    stratum: tablet
+    product_type_hint: tablet
+    query: "gaming tablet"
+    url: "https://www.newegg.com/p/pl?d=gaming+tablet"
+  - name: gpu
+    stratum: gpu
+    product_type_hint: gpu
+    query: "gaming graphics card"
+    url: "https://www.newegg.com/p/pl?d=gaming+graphics+card"
+  - name: cpu
+    stratum: cpu
+    product_type_hint: cpu
+    query: "gaming processor"
+    url: "https://www.newegg.com/p/pl?d=gaming+processor"
 
 limits:
-  max_pages_per_query: 1
+  max_pages_per_query: 8
   min_title_length: 8

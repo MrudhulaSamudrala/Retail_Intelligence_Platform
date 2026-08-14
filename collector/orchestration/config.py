@@ -52,7 +52,7 @@ def load_orchestration_config() -> OrchestrationConfig:
     retries = orch.get("retries") or {}
     timeouts = orch.get("timeouts") or {}
     return OrchestrationConfig(
-        product_limit_per_retailer=int(orch.get("product_limit_per_retailer") or 20),
+        product_limit_per_retailer=int(orch.get("product_limit_per_retailer") or 100),
         search_limit_per_retailer=int(orch.get("search_limit_per_retailer") or 3),
         stale_running_hours=int(orch.get("stale_running_hours") or 6),
         concurrent_lock_key=int(orch.get("concurrent_lock_key") or 74628301),

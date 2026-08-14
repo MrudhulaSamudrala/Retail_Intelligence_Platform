@@ -22,6 +22,12 @@ class ListingCandidate:
     availability_text: Optional[str] = None
     promo_text: Optional[str] = None
     category_raw: Optional[str] = None
+    search_position: Optional[int] = None
+    search_page: Optional[int] = None
+    query: Optional[str] = None
+    stratum: Optional[str] = None
+    universe_slot: Optional[int] = None
+    extraction_status: Optional[str] = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -31,10 +37,15 @@ class CollectionOutcome:
     failed: list[dict[str, Any]] = field(default_factory=list)
     skipped_duplicates: list[str] = field(default_factory=list)
     skipped_irrelevant: list[dict[str, Any]] = field(default_factory=list)
+    unknown: list[dict[str, Any]] = field(default_factory=list)
     discovered: int = 0
     collection_run_id: Optional[int] = None
     status: Optional[str] = None
     bot_blocked: bool = False
+    requested: int = 0
+    observed: int = 0
+    universe: dict[str, Any] = field(default_factory=dict)
+    discovery_stats: dict[str, Any] = field(default_factory=dict)
 
 
 class RetailerCollector(ABC):
@@ -43,13 +54,15 @@ class RetailerCollector(ABC):
     code: str
     country_code: str
     currency: str
+    # When True, --limit N is N observable SERP results (not N valid products).
+    uses_observed_result_limit: bool = False
 
     def is_in_collection_scope(self, product: NormalizedProduct) -> bool:
-        """Whether a normalized product counts toward the collection limit.
+        """Whether a normalized product is eligible for the analytical universe.
 
-        Default: all successfully fetched products count. Retailers with noisy
-        discovery surfaces (e.g. Mercado Libre ofertas) may override to require
-        evidence-based computing product types.
+        Default: all successfully fetched products count. Mercado Libre still
+        classifies eligibility, but ineligible items remain in the observed
+        universe and consume --limit slots.
         """
         return True
 

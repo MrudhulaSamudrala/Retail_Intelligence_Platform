@@ -1,0 +1,90 @@
+# Stratified gaming-computing collection universe.
+# --limit / search_universe_size is the total OBSERVED SERP positions
+# per retailer (not valid products, not unique SKUs).
+#
+# Classification happens AFTER observation.
+# COMPLETE requires every stratum to reach its requested budget.
+# universe_slot is a reporting index only — not a retailer ranking.
+
+search_universe_size: 100
+
+gaming_universe:
+  total_budget: 100
+  overall_complete_requires_all_strata: true
+  strata:
+    - name: notebook
+      budget: 20
+      product_type_hint: notebook
+      queries:
+        newegg: "gaming laptop"
+        mercadolibre: "notebook gamer"
+      urls:
+        newegg: "https://www.newegg.com/p/pl?d=gaming+laptop"
+        mercadolibre: "https://lista.mercadolivre.com.br/notebook-gamer"
+      fallback_urls:
+        mercadolibre: "https://www.mercadolivre.com.br/ofertas?q=notebook%20gamer"
+    - name: desktop
+      budget: 20
+      product_type_hint: desktop
+      queries:
+        newegg: "gaming desktop"
+        mercadolibre: "pc gamer"
+      urls:
+        newegg: "https://www.newegg.com/p/pl?d=gaming+desktop"
+        mercadolibre: "https://lista.mercadolivre.com.br/pc-gamer"
+      fallback_urls:
+        mercadolibre: "https://www.mercadolivre.com.br/ofertas?q=pc%20gamer"
+    - name: workstation
+      budget: 20
+      product_type_hint: workstation
+      queries:
+        newegg: "gaming workstation"
+        mercadolibre: "workstation gamer"
+      urls:
+        newegg: "https://www.newegg.com/p/pl?d=gaming+workstation"
+        mercadolibre: "https://lista.mercadolivre.com.br/workstation-gamer"
+      fallback_urls:
+        mercadolibre: "https://www.mercadolivre.com.br/ofertas?q=workstation%20gamer"
+    - name: tablet
+      budget: 20
+      product_type_hint: tablet
+      queries:
+        newegg: "gaming tablet"
+        mercadolibre: "tablet gamer"
+      urls:
+        newegg: "https://www.newegg.com/p/pl?d=gaming+tablet"
+        mercadolibre: "https://lista.mercadolivre.com.br/tablet-gamer"
+      fallback_urls:
+        mercadolibre: "https://www.mercadolivre.com.br/ofertas?q=tablet%20gamer"
+    - name: gpu
+      budget: 10
+      product_type_hint: gpu
+      queries:
+        newegg: "gaming graphics card"
+        mercadolibre: "placa de video gamer"
+      urls:
+        newegg: "https://www.newegg.com/p/pl?d=gaming+graphics+card"
+        mercadolibre: "https://lista.mercadolivre.com.br/placa-de-video-gamer"
+      fallback_urls:
+        mercadolibre: "https://www.mercadolivre.com.br/ofertas?q=placa%20de%20video%20gamer"
+    - name: cpu
+      budget: 10
+      product_type_hint: cpu
+      queries:
+        newegg: "gaming processor"
+        mercadolibre: "processador gamer"
+      urls:
+        newegg: "https://www.newegg.com/p/pl?d=gaming+processor"
+        mercadolibre: "https://lista.mercadolivre.com.br/processador-gamer"
+      fallback_urls:
+        mercadolibre: "https://www.mercadolivre.com.br/ofertas?q=processador%20gamer"
+
+pagination:
+  max_pages: 8
+  stop_on_empty_page: true
+
+collection_statuses:
+  - COMPLETE
+  - PARTIAL
+  - FAILED
+  - BLOCKED

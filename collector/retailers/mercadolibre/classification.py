@@ -16,13 +16,20 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
 from collector.config_loader import load_product_types
-from collector.normalize import UNKNOWN, _is_discovery_slug, _match_type_in_blob
+from collector.normalize import (
+    UNKNOWN,
+    classify_product_type,
+    non_computing_exclusion,
+)
 
 VALID = "VALID"
 EXCLUDED = "EXCLUDED"
 OTHER_TYPE = "other"
 REASON_UNSUPPORTED_TYPE = "UNSUPPORTED_PRODUCT_TYPE"
 REASON_INSUFFICIENT_TYPE = "INSUFFICIENT_PRODUCT_TYPE_EVIDENCE"
+REASON_FURNITURE = "FURNITURE"
+REASON_ACCESSORY = "ACCESSORY"
+REASON_NON_COMPUTING = "NON_COMPUTING_PRODUCT"
 # Re-export UNKNOWN for callers
 __all__ = [
     "VALID",
@@ -78,6 +85,29 @@ _GAMING_TITLE_RE = re.compile(
     re.I,
 )
 
+# Known unsupported products → product_type=other (never UNKNOWN).
+# Applied only when no supported computing type alias matched.
+_ACCESSORY_TYPE_RE = re.compile(
+    r"\b("
+    r"monitor(?:es)?|monitores|"
+    r"keyboard|teclado|"
+    r"mousepad|mouse\s*pad|"
+    r"headset|fone de ouvido|"
+    r"speaker|caixa de som|"
+    r"webcam|"
+    r"dock(?:ing)?\s*station"
+    r")\b",
+    re.I,
+)
+
+
+def _accessory_product_type(title: Optional[str]) -> Optional[str]:
+    if not title:
+        return None
+    if _ACCESSORY_TYPE_RE.search(title):
+        return OTHER_TYPE
+    return None
+
 
 @dataclass
 class ClassificationResult:
@@ -124,23 +154,15 @@ def _positive_type(
     category_raw: Optional[str],
     specs: Optional[dict[str, str]],
 ) -> tuple[Optional[str], list[str]]:
-    types = load_product_types().get("product_types", [])
-    reasons: list[str] = []
-    title_parts = [title or ""]
-    if specs:
-        title_parts.extend(str(v) for v in specs.values() if v)
-    title_blob = " ".join(title_parts)
-    matched = _match_type_in_blob(title_blob, types)
-    if matched:
-        reasons.append(f"title_or_specs_alias:{matched}")
-        return matched, reasons
-
-    if category_raw and not _is_discovery_slug(category_raw):
-        matched = _match_type_in_blob(category_raw, types)
-        if matched:
-            reasons.append(f"category_alias:{matched}")
-            return matched, reasons
-    return None, reasons
+    code, reason = classify_product_type(
+        title=title, category_raw=category_raw, specs=specs
+    )
+    reasons = [reason] if reason else []
+    if code in SUPPORTED_PRODUCT_TYPES or code == OTHER_TYPE:
+        return code, reasons
+    if code == UNKNOWN:
+        return None, reasons
+    return code, reasons
 
 
 def _has_computing_structure(
@@ -181,8 +203,23 @@ def classify_mercadolibre_product(
         "discovery_name": discovery_name,
     }
 
+    excluded = non_computing_exclusion(title)
+    if excluded:
+        type_reason, exclusion_reason = excluded
+        reasons.append(type_reason)
+        return ClassificationResult(
+            status=EXCLUDED,
+            product_type=OTHER_TYPE,
+            confidence=0.95,
+            gaming=False,
+            hard_negative=True,
+            reasons=reasons,
+            evidence=evidence,
+            exclusion_reason=exclusion_reason,
+        )
+
     # Stage 1 — hard negatives always win (even if title contains "notebook"
-    # as a false leading word next to TV/power-bank — rare; hard neg phrases
+    # as a false leading word next to TV/power-bank — rare; hard-neg phrases
     # are specific). Exception: if title clearly leads with a computing type
     # alias AND hard-neg is a weak secondary token, still prefer hard-neg when
     # the hard-neg phrase is an unambiguous product class (tv, power bank, …).
@@ -228,6 +265,33 @@ def classify_mercadolibre_product(
             hard_negative=False,
             reasons=reasons,
             evidence=evidence,
+        )
+
+    if ptype == OTHER_TYPE:
+        reasons.append("unsupported_product_type:other")
+        return ClassificationResult(
+            status=EXCLUDED,
+            product_type=OTHER_TYPE,
+            confidence=0.9,
+            gaming=False,
+            hard_negative=True,
+            reasons=reasons,
+            evidence=evidence,
+            exclusion_reason=REASON_NON_COMPUTING,
+        )
+
+    accessory = _accessory_product_type(title)
+    if accessory:
+        reasons.append(f"excluded_accessory:{accessory}")
+        return ClassificationResult(
+            status=EXCLUDED,
+            product_type=OTHER_TYPE,
+            confidence=0.9,
+            gaming=False,
+            hard_negative=False,
+            reasons=reasons,
+            evidence=evidence,
+            exclusion_reason=REASON_UNSUPPORTED_TYPE,
         )
 
     if structural:

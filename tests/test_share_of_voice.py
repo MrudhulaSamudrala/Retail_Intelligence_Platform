@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from analytics.share_of_voice import (
+    SOV_SOURCE_KEYWORD_SEARCH,
     SovScope,
     brand_presence,
     keyword_metrics,
@@ -87,6 +88,11 @@ def _hit(
     )
 
 
+def _hist(**kwargs) -> SovScope:
+    """Historical keyword-search universe (not mixed into stratified SoV)."""
+    return SovScope(observation_source=SOV_SOURCE_KEYWORD_SEARCH, **kwargs)
+
+
 def _seed_complete_search(session: Session) -> None:
     """
     Known universe for keyword 'gaming laptop' (COMPLETE):
@@ -140,13 +146,13 @@ def test_keywords_config_is_multi_retailer_country() -> None:
 
 def test_brand_presence_appearances_topn_avg_sov(session: Session) -> None:
     _seed_complete_search(session)
-    presence = brand_presence(session, scope=SovScope(keyword="gaming laptop"))
+    presence = brand_presence(session, scope=_hist(keyword="gaming laptop"))
     assert presence["Intel"] is True
     assert presence["AMD"] is True
     assert presence["Apple"] is True
     assert presence["Qualcomm"] is True
 
-    metrics = {m.brand: m for m in keyword_metrics(session, scope=SovScope(keyword="gaming laptop"), top_n=10)}
+    metrics = {m.brand: m for m in keyword_metrics(session, scope=_hist(keyword="gaming laptop"), top_n=10)}
     # Appearances: Intel 4, AMD 4, Apple 2, Qualcomm 1; UNKNOWN excluded from denom
     # denom tracked = 11
     assert metrics["Intel"].appearances == 4
@@ -175,8 +181,8 @@ def test_brand_presence_appearances_topn_avg_sov(session: Session) -> None:
 
 def test_configurable_top_n(session: Session) -> None:
     _seed_complete_search(session)
-    top3 = {m.brand: m.top_n_count for m in keyword_metrics(session, top_n=3)}
-    top5 = {m.brand: m.top_n_count for m in keyword_metrics(session, top_n=5)}
+    top3 = {m.brand: m.top_n_count for m in keyword_metrics(session, scope=_hist(), top_n=3)}
+    top5 = {m.brand: m.top_n_count for m in keyword_metrics(session, scope=_hist(), top_n=5)}
     # Top3: Intel, AMD, Apple
     assert top3["Intel"] == 1
     assert top3["AMD"] == 1
@@ -189,7 +195,7 @@ def test_configurable_top_n(session: Session) -> None:
 
 def test_unknown_excluded_from_sov_denominator(session: Session) -> None:
     _seed_complete_search(session)
-    snap = share_of_voice(session, scope=SovScope(keyword="gaming laptop"))
+    snap = share_of_voice(session, scope=_hist(keyword="gaming laptop"))
     assert snap.unknown_appearances == 1
     assert snap.tracked_appearances == 11
     total_share = sum(m.share_of_voice for m in snap.metrics)
@@ -225,9 +231,9 @@ def test_multiple_retailers_countries_keywords(session: Session) -> None:
         )
     session.commit()
 
-    us = share_of_voice(session, scope=SovScope(country_code="US"))
+    us = share_of_voice(session, scope=_hist(country_code="US"))
     assert us.tracked_appearances == 2
-    br = brand_presence(session, scope=SovScope(country_code="BR"))
+    br = brand_presence(session, scope=_hist(country_code="BR"))
     assert br["Apple"] is True
     assert br["Intel"] is False
 
@@ -248,7 +254,7 @@ def test_duplicate_position_not_double_counted(session: Session) -> None:
         ),
     )
     session.commit()
-    snap = share_of_voice(session, scope=SovScope(keyword="gaming laptop"))
+    snap = share_of_voice(session, scope=_hist(keyword="gaming laptop"))
     assert snap.total_observations == 1
     assert snap.metrics[0].appearances == 1 if snap.metrics[0].brand == "Intel" else True
     intel = next(m for m in snap.metrics if m.brand == "Intel")
@@ -280,7 +286,7 @@ def test_historical_observations_append_only(session: Session) -> None:
     assert rows[1].brand == "AMD"
 
     trends = share_of_voice_trends(
-        session, scope=SovScope(keyword="gaming laptop", retailer_code="newegg")
+        session, scope=_hist(keyword="gaming laptop", retailer_code="newegg")
     )
     days = sorted({p.period_start.date() for p in trends})
     assert len(days) == 2
@@ -328,13 +334,13 @@ def test_partial_and_failed_and_zero_searches(session: Session) -> None:
     )
     session.commit()
 
-    snap = share_of_voice(session, scope=SovScope(keyword="gaming laptop"))
+    snap = share_of_voice(session, scope=_hist(keyword="gaming laptop"))
     assert snap.collection_basis == "observed_partial"
     assert snap.partial_searches == 1
 
     exact_only = share_of_voice(
         session,
-        scope=SovScope(keyword="gaming laptop", require_complete=True),
+        scope=_hist(keyword="gaming laptop", require_complete=True),
     )
     assert exact_only.total_observations == 0
 
@@ -359,7 +365,7 @@ def test_average_rank_ignores_missing_brands(session: Session) -> None:
         ),
     )
     session.commit()
-    metrics = {m.brand: m for m in keyword_metrics(session)}
+    metrics = {m.brand: m for m in keyword_metrics(session, scope=_hist())}
     assert metrics["Intel"].average_rank == Decimal("5.00")
     assert metrics["Qualcomm"].average_rank is None
     assert metrics["Qualcomm"].rank_observation_count == 0

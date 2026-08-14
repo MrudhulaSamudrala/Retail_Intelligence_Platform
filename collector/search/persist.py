@@ -3,11 +3,54 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any, Mapping, Sequence
 
 from sqlalchemy.orm import Session
 
 from collector.search.models import SearchRunResult
+from database.models import SearchObservation
 from database.repositories import CollectionRunRepository, ObservationRepository, ProductRepository
+
+# Distinguish historical keyword SoV rows from stratified catalog SERP slots.
+SOURCE_KEYWORD_SEARCH = "keyword_search"
+SOURCE_STRATIFIED_CATALOG = "stratified_catalog"
+
+
+def is_stratified_catalog_observation(row: SearchObservation | Mapping[str, Any]) -> bool:
+    """True for new catalog-universe rows; False for historical keyword searches."""
+    source = None
+    details: Any = None
+    if isinstance(row, Mapping):
+        source = row.get("observation_source")
+        details = row.get("details")
+    else:
+        source = getattr(row, "observation_source", None)
+        details = getattr(row, "details", None)
+    if source == SOURCE_STRATIFIED_CATALOG:
+        return True
+    if isinstance(details, dict) and details.get("observation_source") == SOURCE_STRATIFIED_CATALOG:
+        return True
+    return False
+
+
+def stratum_observation_status(report: Mapping[str, Any] | None) -> str:
+    """Map a catalog stratum report to COMPLETE|PARTIAL|BLOCKED|FAILED.
+
+    Fallback/ofertas cards are never COMPLETE ranked SERP evidence.
+    """
+    report = report or {}
+    if report.get("used_fallback"):
+        return "PARTIAL"
+    search_status = str(report.get("search_status") or "")
+    completeness = str(report.get("completeness") or "")
+    observed = int(report.get("observed") or 0)
+    if search_status == "BLOCKED":
+        if observed <= 0:
+            return "BLOCKED"
+        return "PARTIAL"
+    if completeness in {"COMPLETE", "PARTIAL", "FAILED", "BLOCKED"}:
+        return completeness
+    return "FAILED"
 
 
 def persist_search_run(
@@ -56,6 +99,8 @@ def persist_search_run(
                 product_id = existing.id
 
         details = dict(hit.details or {})
+        details.setdefault("observation_source", SOURCE_KEYWORD_SEARCH)
+        details.setdefault("ranking_scope", "keyword_search")
         # Eligibility flag: preserve observation, allow analytics to exclude junk.
         if "is_eligible" not in details:
             if hit.retailer_code == "mercadolibre":
@@ -90,6 +135,8 @@ def persist_search_run(
             collection_status=run.collection_status,
             search_url=hit.search_url or run.search_url,
             pages_collected=run.pages_collected,
+            stratum=None,
+            observation_source=SOURCE_KEYWORD_SEARCH,
             details=details or None,
         )
 
@@ -107,3 +154,88 @@ def persist_search_run(
         )
     session.flush()
     return len(run.hits)
+
+
+def persist_stratified_catalog_observations(
+    session: Session,
+    *,
+    collection_run_id: int,
+    retailer_code: str,
+    country_code: str,
+    slots: Sequence[Mapping[str, Any]],
+    strata_reports: Sequence[Mapping[str, Any]] | None = None,
+    observed_at: datetime | None = None,
+) -> int:
+    """Append one search_observations row per catalog SERP slot.
+
+    Does not create product identities. Native ``search_position`` is stored as
+    ``position``; ``universe_slot`` is metadata only. Never deletes prior rows.
+    """
+    observed = observed_at or datetime.now(timezone.utc)
+    obs = ObservationRepository(session)
+    products = ProductRepository(session)
+    reports = {str(r.get("stratum") or ""): r for r in (strata_reports or [])}
+    written = 0
+    for slot in slots:
+        stratum = slot.get("stratum")
+        report = reports.get(str(stratum or "")) or {}
+        status = stratum_observation_status(report)
+        query = str(slot.get("query") or report.get("query") or "")
+        position = int(slot.get("search_position") or 0)
+        if position <= 0:
+            continue
+        sku = (slot.get("sku") or slot.get("retailer_sku") or "") or None
+        if sku:
+            sku = str(sku).strip() or None
+        product_id = slot.get("product_id")
+        if product_id is None and sku:
+            existing = products.get_by_retailer_sku(retailer_code, country_code, sku)
+            if existing is not None:
+                product_id = existing.id
+        bucket = str(slot.get("bucket") or slot.get("extraction_status") or "")
+        details: dict[str, Any] = {
+            "observation_source": SOURCE_STRATIFIED_CATALOG,
+            "ranking_scope": "stratum_query",
+            "stratum": stratum,
+            "query": query,
+            "universe_slot": slot.get("universe_slot"),
+            "universe_slot_is_retailer_rank": False,
+            "slot_status": bucket,
+            "extraction_status": slot.get("extraction_status"),
+            "exclusion_status": slot.get("exclusion_status") or bucket,
+            "exclusion_reason": slot.get("exclusion_reason"),
+            "duplicate": bucket == "DUPLICATE",
+            "excluded": bucket == "EXCLUDED",
+            "is_eligible": bucket == "VALID",
+            "gaming": bool(slot.get("gaming")),
+            "used_fallback": bool(slot.get("used_fallback") or report.get("used_fallback")),
+            "product_type": slot.get("product_type"),
+        }
+        obs.add_search(
+            collection_run_id=collection_run_id,
+            product_id=int(product_id) if product_id is not None else None,
+            observed_at=observed,
+            retailer_code=retailer_code,
+            country_code=country_code,
+            keyword=query,
+            position=position,
+            page_number=slot.get("search_page") or slot.get("page_number"),
+            retailer_sku=sku,
+            title=slot.get("title"),
+            brand=slot.get("brand"),
+            oem=slot.get("oem"),
+            source_url=slot.get("url") or slot.get("source_url"),
+            is_sponsored=bool(slot.get("is_sponsored")),
+            evidence_text=slot.get("title"),
+            selector=None,
+            collection_status=status,
+            search_url=slot.get("search_url") or report.get("search_url"),
+            pages_collected=report.get("pages_inspected") or report.get("pages_collected"),
+            stratum=str(stratum) if stratum else None,
+            observation_source=SOURCE_STRATIFIED_CATALOG,
+            details=details,
+        )
+        written += 1
+    session.flush()
+    return written
+

@@ -1,10 +1,15 @@
-# Mercado Libre Brazil controlled collection scope.
+# Mercado Libre Brazil stratified gaming-computing discovery.
 #
-# PRIMARY: search / category listing surfaces (relevant computing queries).
-# SECONDARY: ofertas pages as enrichment fallback only (often polluted).
+# Catalog collection uses GENERIC gaming queries only.
+# The four tracked brands (Intel / AMD / Qualcomm / Apple) are analytical
+# dimensions — never collection filters.
 #
-# lista.mercadolivre.com.br is frequently gated by account-verification in
-# automated CDP sessions — the collector records BLOCKED and continues.
+# PRIMARY: ranked search per stratum. Paginate until that stratum's budget.
+# Do not open another stratum to replace excluded / unknown products.
+#
+# SECONDARY: ofertas pages as access fallback only when THAT stratum's
+# ranked search yields zero observable results. Fallback is not ranked
+# evidence and does not make the stratum COMPLETE.
 #
 # product_type_hint is informational only — never force classification from it.
 # Chrome Translate is NOT used. Portuguese DOM → PT-aware parse → English normals.
@@ -13,72 +18,100 @@ retailer_code: mercadolibre
 country_code: BR
 currency: BRL
 
-# Tried first. Surface = search | category.
 discovery_primary:
   - name: search_notebook_gamer
+    stratum: notebook
     surface: search
     product_type_hint: notebook
     category_label: "search:notebook gamer"
     query: "notebook gamer"
     url: "https://lista.mercadolivre.com.br/notebook-gamer"
-  - name: search_notebook_rtx
-    surface: search
-    product_type_hint: notebook
-    category_label: "search:notebook rtx"
-    query: "notebook rtx"
-    url: "https://lista.mercadolivre.com.br/notebook-rtx"
-  - name: search_notebook_ryzen
-    surface: search
-    product_type_hint: notebook
-    category_label: "search:notebook ryzen"
-    query: "notebook ryzen"
-    url: "https://lista.mercadolivre.com.br/notebook-ryzen"
-  - name: search_notebook_intel
-    surface: search
-    product_type_hint: notebook
-    category_label: "search:notebook intel"
-    query: "notebook intel"
-    url: "https://lista.mercadolivre.com.br/notebook-intel"
   - name: search_pc_gamer
+    stratum: desktop
     surface: search
     product_type_hint: desktop
     category_label: "search:pc gamer"
     query: "pc gamer"
     url: "https://lista.mercadolivre.com.br/pc-gamer"
-  - name: search_gaming_laptop
+  - name: search_workstation_gamer
+    stratum: workstation
     surface: search
-    product_type_hint: notebook
-    category_label: "search:gaming laptop"
-    query: "gaming laptop"
-    url: "https://lista.mercadolivre.com.br/gaming-laptop"
+    product_type_hint: workstation
+    category_label: "search:workstation gamer"
+    query: "workstation gamer"
+    url: "https://lista.mercadolivre.com.br/workstation-gamer"
+  - name: search_tablet_gamer
+    stratum: tablet
+    surface: search
+    product_type_hint: tablet
+    category_label: "search:tablet gamer"
+    query: "tablet gamer"
+    url: "https://lista.mercadolivre.com.br/tablet-gamer"
+  - name: search_placa_video_gamer
+    stratum: gpu
+    surface: search
+    product_type_hint: gpu
+    category_label: "search:placa de video gamer"
+    query: "placa de video gamer"
+    url: "https://lista.mercadolivre.com.br/placa-de-video-gamer"
+  - name: search_processador_gamer
+    stratum: cpu
+    surface: search
+    product_type_hint: cpu
+    category_label: "search:processador gamer"
+    query: "processador gamer"
+    url: "https://lista.mercadolivre.com.br/processador-gamer"
 
-# Used only when primary yields too few in-scope candidates (or all blocked).
 discovery_secondary:
-  - name: notebook_ofertas
-    surface: ofertas
-    product_type_hint: notebook
-    # MLB1652 = Notebooks category. Label omits type aliases.
-    category_label: "MLB1652"
-    url: "https://www.mercadolivre.com.br/ofertas?category=MLB1652"
   - name: notebook_gamer_ofertas
+    stratum: notebook
     surface: ofertas
     product_type_hint: notebook
     category_label: "ofertas_query"
+    query: "notebook gamer"
     url: "https://www.mercadolivre.com.br/ofertas?q=notebook%20gamer"
   - name: desktop_gamer_ofertas
+    stratum: desktop
     surface: ofertas
     product_type_hint: desktop
     category_label: "ofertas_query"
+    query: "pc gamer"
     url: "https://www.mercadolivre.com.br/ofertas?q=pc%20gamer"
+  - name: workstation_gamer_ofertas
+    stratum: workstation
+    surface: ofertas
+    product_type_hint: workstation
+    category_label: "ofertas_query"
+    query: "workstation gamer"
+    url: "https://www.mercadolivre.com.br/ofertas?q=workstation%20gamer"
+  - name: tablet_gamer_ofertas
+    stratum: tablet
+    surface: ofertas
+    product_type_hint: tablet
+    category_label: "ofertas_query"
+    query: "tablet gamer"
+    url: "https://www.mercadolivre.com.br/ofertas?q=tablet%20gamer"
+  - name: gpu_gamer_ofertas
+    stratum: gpu
+    surface: ofertas
+    product_type_hint: gpu
+    category_label: "ofertas_query"
+    query: "placa de video gamer"
+    url: "https://www.mercadolivre.com.br/ofertas?q=placa%20de%20video%20gamer"
+  - name: cpu_gamer_ofertas
+    stratum: cpu
+    surface: ofertas
+    product_type_hint: cpu
+    category_label: "ofertas_query"
+    query: "processador gamer"
+    url: "https://www.mercadolivre.com.br/ofertas?q=processador%20gamer"
 
-# Back-compat alias — collector prefers discovery_primary + discovery_secondary.
 discovery: []
 
 limits:
-  max_pages_per_query: 2
+  max_pages_per_query: 8
   min_title_length: 8
-  discovery_overscan_factor: 4
-  # Prefer this many in-scope candidates from primary before opening secondary.
-  secondary_after_unique: 8
+  discovery_overscan_factor: 1
+  secondary_after_unique: 0
 
 allow_listing_only_fallback: true

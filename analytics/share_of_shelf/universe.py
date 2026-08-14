@@ -4,18 +4,20 @@ Inclusion rules (consistent product universe)
 ---------------------------------------------
 A listing enters the SoS denominator when **all** of the following hold:
 
-1. **Product type** is in ``share_of_shelf.eligible_product_types``
+1. **Shared classifier** does not mark the listing EXCLUDED / ``other``
+   (furniture, stands, mounts, digitizers, TVs, accessories).
+2. **Product type** is in ``share_of_shelf.eligible_product_types``
    (notebook, desktop, workstation, tablet, cpu, gpu by default).
-2. **Not an accessory / excluded category** — ``product_type`` is not
-   ``UNKNOWN``/empty for type purposes when category text matches
-   ``excluded_categories`` (monitors, keyboards, accessories, etc.).
-3. **Gaming-eligible** — title or category matches configured
+3. **Not an accessory / excluded category**.
+4. **Gaming-eligible** — title or category matches configured
    ``gaming_signals`` (title_keywords / category_keywords).
-4. **Deduplicated** by ``(retailer_code, country_code, retailer_sku)`` —
-   one row per retailer SKU identity (the ``products`` primary identity).
-5. **Out-of-stock included** when ``include_out_of_stock: true`` (default).
-6. Active products only for the live ``products`` table view
+5. **Deduplicated** by ``(retailer_code, country_code, retailer_sku)``.
+6. **Out-of-stock included** when ``include_out_of_stock: true`` (default).
+7. Active products only for the live ``products`` table view
    (``is_active``); historical snapshot views use snapshot presence instead.
+
+Brand UNKNOWN and Brand OTHER are **not** exclusion criteria.
+
 
 Brand vs OEM (Apple double-count guard)
 ---------------------------------------
@@ -165,23 +167,32 @@ def evaluate_listing_eligibility(
     config: SosUniverseConfig | None = None,
     retailer_code: Optional[str] = None,
 ) -> tuple[bool, Optional[str]]:
-    """Return (eligible, exclusion_reason)."""
+    """Return (eligible, exclusion_reason).
+
+    Uses the shared product classifier for every retailer so furniture,
+    accessories, and ``product_type=other`` never enter the denominator.
+    Brand UNKNOWN / OTHER are not exclusion criteria.
+    """
     cfg = config or load_sos_universe_config()
+    _ = retailer_code
 
-    # Explicit ML two-stage gate: hard-negatives / non-computing never enter SoS.
-    if (retailer_code or "").lower() == "mercadolibre":
-        from collector.retailers.mercadolibre.classification import (
-            EXCLUDED,
-            classify_mercadolibre_product,
-        )
+    from collector.retailers.mercadolibre.classification import (
+        EXCLUDED,
+        OTHER_TYPE,
+        SUPPORTED_PRODUCT_TYPES,
+        classify_mercadolibre_product,
+    )
 
-        classified = classify_mercadolibre_product(
-            title=title, category_raw=category_raw
-        )
-        if classified.status == EXCLUDED or classified.hard_negative:
-            return False, "accessory_or_ineligible_type"
-        if classified.product_type and classified.product_type != UNKNOWN:
-            product_type = classified.product_type
+    classified = classify_mercadolibre_product(
+        title=title, category_raw=category_raw
+    )
+    if classified.status == EXCLUDED or classified.hard_negative:
+        return False, "accessory_or_ineligible_type"
+    stored_type = (product_type or "").strip().lower()
+    if stored_type == OTHER_TYPE or classified.product_type == OTHER_TYPE:
+        return False, "accessory_or_ineligible_type"
+    if classified.product_type and classified.product_type in SUPPORTED_PRODUCT_TYPES:
+        product_type = classified.product_type
 
     if is_accessory_excluded(
         product_type=product_type, category_raw=category_raw, config=cfg

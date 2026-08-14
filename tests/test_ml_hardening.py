@@ -111,7 +111,7 @@ def test_classify_excludes_tv_powerbank_supplement_bike_phone() -> None:
             title=title, category_raw="notebook_ofertas"
         )
         assert result.status == EXCLUDED, title
-        assert result.product_type == "UNKNOWN", title
+        assert result.product_type == "other", title
         assert not is_collection_eligible(result)
 
 
@@ -154,8 +154,14 @@ def test_raw_portuguese_preserved_english_type() -> None:
     assert product.raw_payload["classification"]["status"] == VALID
 
 
-def test_limit_semantics_irrelevant_and_duplicates() -> None:
-    from collector.base import CollectionOutcome
+def test_limit_semantics_observed_slots_not_valid_quota() -> None:
+    from collector.observation import (
+        ObservationCounters,
+        STATUS_EXCLUDED,
+        STATUS_VALID,
+        observation_bucket,
+    )
+    from collector.retailers.mercadolibre.product_page import build_from_listing
 
     titles = [
         ("MLB1", "Smart Tv Philips"),
@@ -165,19 +171,11 @@ def test_limit_semantics_irrelevant_and_duplicates() -> None:
         ("MLB4", "Notebook Lenovo IdeaPad Intel Core i5 16GB SSD"),
     ]
     limit = 2
-    outcome = CollectionOutcome()
+    counters = ObservationCounters(requested=limit)
     seen: set[str] = set()
     for sku, title in titles:
-        if len(outcome.success) >= limit:
+        if counters.observed >= limit:
             break
-        if sku in seen:
-            outcome.skipped_duplicates.append(sku)
-            continue
-        seen.add(sku)
-        result = classify_mercadolibre_product(title=title)
-        if not is_collection_eligible(result):
-            outcome.skipped_irrelevant.append({"sku": sku, "status": result.status})
-            continue
         product = build_from_listing(
             retailer_code="mercadolibre",
             country_code="BR",
@@ -191,24 +189,45 @@ def test_limit_semantics_irrelevant_and_duplicates() -> None:
             category_raw="MLB1652",
             detail_page_status="listing_only",
         )
-        outcome.success.append(product)
-    assert len(outcome.success) == 2
-    assert len(outcome.skipped_irrelevant) == 2
-    assert outcome.skipped_duplicates == ["MLB2"]
+        duplicate = sku in seen
+        seen.add(sku)
+        bucket = observation_bucket(product, duplicate=duplicate)
+        counters.record(bucket, product)
+    assert counters.observed == 2
+    assert counters.valid + counters.excluded + counters.unknown + counters.failed + counters.duplicate == 2
+    assert counters.buckets[0] == STATUS_EXCLUDED
+    assert counters.buckets[1] == STATUS_VALID
 
 
-def test_fewer_than_limit_valid_products_ok() -> None:
+def test_fewer_than_limit_observable_is_partial() -> None:
+    from collector.observation import ObservationCounters, completeness_status, observation_bucket
+    from collector.retailers.mercadolibre.product_page import build_from_listing
+
     stream = [
         ("A", "Smart Tv"),
         ("B", "Notebook Dell Intel Core i7 16GB SSD"),
         ("C", "Power Bank"),
     ]
-    success = []
+    counters = ObservationCounters(requested=20)
     for sku, title in stream:
-        result = classify_mercadolibre_product(title=title)
-        if is_collection_eligible(result):
-            success.append(sku)
-    assert success == ["B"]  # stop naturally below limit=20
+        product = build_from_listing(
+            retailer_code="mercadolibre",
+            country_code="BR",
+            currency="BRL",
+            sku=sku,
+            source_url=f"https://www.mercadolivre.com.br/p/{sku}",
+            title=title,
+            price_text="1.000,00",
+            list_price_text=None,
+            promo_text=None,
+            category_raw="MLB1652",
+            detail_page_status="listing_only",
+        )
+        counters.record(observation_bucket(product), product)
+    assert counters.observed == 3
+    assert counters.valid == 1
+    assert counters.excluded == 2
+    assert completeness_status(requested=20, observed=3, had_error=False) == "PARTIAL"
 
 
 def test_search_status_constants() -> None:

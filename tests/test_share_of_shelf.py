@@ -455,6 +455,102 @@ def test_historical_trends_by_date(session: Session) -> None:
     assert by_brand["AMD"].share == Decimal("0.5000")
 
 
+def test_furniture_and_other_type_excluded_from_sos_denominator(session: Session) -> None:
+    run = CollectionRunRepository(session).start(
+        retailer_code="newegg", country_code="US", run_type="discovery"
+    )
+    _add_product(
+        session,
+        sku="DESK-OTHER-1",
+        brand="UNKNOWN",
+        oem="UNKNOWN",
+        product_type="other",
+        title='Electric RGB Gaming Standing Desk 55"',
+        category_raw="workstation",
+        run_id=run.id,
+    )
+    _add_product(
+        session,
+        sku="DESK-WS-1",
+        brand="UNKNOWN",
+        oem="UNKNOWN",
+        product_type="workstation",
+        title="E6G CyberX RGB LED Gaming Standing Desk Black",
+        category_raw="workstation",
+        run_id=run.id,
+    )
+    _add_product(
+        session,
+        sku="NB-UNKNOWN-1",
+        brand="UNKNOWN",
+        oem="UNKNOWN",
+        product_type="notebook",
+        title="15 Inch Gaming Notebook 16GB RAM RTX 4060",
+        run_id=run.id,
+    )
+    session.commit()
+    result = share_of_shelf_by_brand(session)
+    assert result.universe_size == 1
+    by_brand = {s.value: s for s in result.shares}
+    assert by_brand["UNKNOWN"].product_count == 1
+    assert result.exclusions.accessory_or_ineligible_type >= 2
+
+
+def test_other_brand_gaming_tablet_included_in_sos_denominator(session: Session) -> None:
+    from collector.classification import OTHER
+
+    run = CollectionRunRepository(session).start(
+        retailer_code="newegg", country_code="US", run_type="discovery"
+    )
+    _add_product(
+        session,
+        sku="TAB-OTHER-1",
+        brand=OTHER,
+        oem="UNKNOWN",
+        product_type="tablet",
+        title='HAOVM 10" Gaming Tablet MediaTek Helio G80',
+        category_raw="tablet",
+        run_id=run.id,
+    )
+    session.commit()
+    result = share_of_shelf_by_brand(session)
+    assert result.universe_size == 1
+    assert result.shares[0].value == OTHER
+    assert result.shares[0].product_count == 1
+
+
+def test_same_sku_two_strata_counted_once_in_sos() -> None:
+    eligible, exclusions = build_eligible_universe(
+        [
+            {
+                "product_id": 1,
+                "retailer_code": "newegg",
+                "country_code": "US",
+                "retailer_sku": "SHARED-SKU",
+                "brand": "AMD",
+                "oem": "Asus",
+                "product_type": "notebook",
+                "title": "ASUS TUF Gaming Laptop AMD Ryzen 7",
+                "category_raw": "notebook",
+            },
+            {
+                "product_id": 1,
+                "retailer_code": "newegg",
+                "country_code": "US",
+                "retailer_sku": "SHARED-SKU",
+                "brand": "AMD",
+                "oem": "Asus",
+                "product_type": "desktop",
+                "title": "ASUS TUF Gaming Laptop AMD Ryzen 7",
+                "category_raw": "desktop",
+            },
+        ]
+    )
+    assert len(eligible) == 1
+    assert exclusions["duplicate_sku"] == 1
+    assert eligible[0].brand == "AMD"
+
+
 def test_build_universe_rejects_accessories_in_pure_function() -> None:
     cfg = load_sos_universe_config()
     eligible, exclusions = build_eligible_universe(

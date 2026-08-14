@@ -32,6 +32,7 @@ def main() -> int:
 
         print("Share of Voice / Search Visibility")
         print("==================================")
+        print(f"observation_source: {snap.observation_source}")
         print(f"collection_basis: {snap.collection_basis}")
         if snap.collection_basis != "exact":
             print(
@@ -39,8 +40,12 @@ def main() -> int:
                 "observed/partial search visibility, not exact full-universe SoV."
             )
         print(f"Result observations (latest batches): {snap.total_observations}")
+        print(f"Eligible observations: {snap.eligible_observations}")
         print(f"Tracked-brand results: {snap.tracked_appearances}")
         print(f"UNKNOWN results: {snap.unknown_appearances}")
+        print(f"OTHER results: {snap.other_appearances}")
+        print(f"Excluded observations: {snap.excluded_observations}")
+        print(f"Duplicate observations: {snap.duplicate_observations}")
         print(
             f"Searches COMPLETE/PARTIAL/FAILED: "
             f"{snap.complete_searches}/{snap.partial_searches}/{snap.failed_searches}"
@@ -74,6 +79,23 @@ def main() -> int:
         for m in snap.metrics:
             print(f"  {m.brand:10} {_pct(m.share_of_voice)}")
         print()
+        if snap.stratum_status:
+            print("Stratum status:")
+            for name, status in snap.stratum_status.items():
+                print(f"  {name:12} {status}")
+            print()
+        if snap.stratum_metrics:
+            print("Stratum Share of Voice:")
+            current = None
+            for m in snap.stratum_metrics:
+                if m.stratum != current:
+                    current = m.stratum
+                    print(f"  {current}:")
+                print(
+                    f"    {m.brand:10} {_pct(m.share_of_voice)} "
+                    f"(appearances={m.appearances})"
+                )
+            print()
 
         # Keyword-level
         keywords = session.scalars(

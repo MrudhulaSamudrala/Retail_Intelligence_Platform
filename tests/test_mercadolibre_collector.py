@@ -378,8 +378,8 @@ def test_discovery_slug_alone_does_not_force_notebook() -> None:
     )
 
 
-def test_irrelevant_listing_does_not_count_toward_valid_limit() -> None:
-    from collector.base import CollectionOutcome, ListingCandidate
+def test_irrelevant_listing_still_consumes_observation_slot() -> None:
+    from collector.observation import ObservationCounters, observation_bucket
     from collector.normalize import build_normalized_product
     from collector.retailers.mercadolibre.relevance import is_in_collection_scope
 
@@ -404,25 +404,20 @@ def test_irrelevant_listing_does_not_count_toward_valid_limit() -> None:
     assert not is_in_collection_scope(product_type=tv.product_type, title=tv.title)
     assert is_in_collection_scope(product_type=nb.product_type, title=nb.title)
 
-    outcome = CollectionOutcome()
-    # Simulate pipeline counting: only in-scope products join success.
-    for product in (tv, nb, tv):
-        if is_in_collection_scope(product_type=product.product_type, title=product.title):
-            outcome.success.append(product)
-        else:
-            outcome.skipped_irrelevant.append({"sku": product.retailer_sku})
-    assert len(outcome.success) == 1
-    assert len(outcome.skipped_irrelevant) == 2
-    assert outcome.success[0].retailer_sku == "MLBNB1"
+    counters = ObservationCounters(requested=2)
+    for product in (tv, nb):
+        counters.record(observation_bucket(product), product)
+    assert counters.observed == 2
+    assert counters.excluded == 1
+    assert counters.valid == 1
 
 
-def test_collector_continues_after_irrelevant_and_limit_means_valid_unique() -> None:
-    """limit=N means up to N valid unique products; junk/dupes do not fill the quota."""
-    from collector.base import CollectionOutcome
+def test_limit_means_observed_results_not_valid_unique() -> None:
+    """limit=N means up to N observed SERP slots; junk still fills a slot."""
+    from collector.observation import ObservationCounters, observation_bucket
     from collector.normalize import build_normalized_product
-    from collector.retailers.mercadolibre.relevance import is_in_collection_scope
 
-    def _prod(sku: str, title: str) -> object:
+    def _prod(sku: str, title: str):
         return build_normalized_product(
             retailer_code="mercadolibre",
             country_code="BR",
@@ -443,27 +438,25 @@ def test_collector_continues_after_irrelevant_and_limit_means_valid_unique() -> 
         _prod("MLB6", "Notebook ASUS TUF Gaming AMD Ryzen 7 RTX 4060"),
     ]
     limit = 2
-    outcome = CollectionOutcome()
+    counters = ObservationCounters(requested=limit)
     seen: set[str] = set()
+    kept_skus: list[str] = []
     for product in stream:
-        if len(outcome.success) >= limit:
+        if counters.observed >= limit:
             break
         sku = product.retailer_sku
-        if sku in seen:
-            outcome.skipped_duplicates.append(sku)
-            continue
+        duplicate = sku in seen
         seen.add(sku)
-        if not is_in_collection_scope(product_type=product.product_type, title=product.title):
-            outcome.skipped_irrelevant.append({"sku": sku, "title": product.title})
-            continue  # continue discovery after junk
-        outcome.success.append(product)
+        bucket = observation_bucket(product, duplicate=duplicate)
+        counters.record(bucket, product)
+        kept_skus.append(sku)
 
-    assert len(outcome.success) == 2
-    assert {p.retailer_sku for p in outcome.success} == {"MLB2", "MLB4"}
-    assert len(outcome.skipped_irrelevant) == 2  # TV + power bank before quota filled
-    assert outcome.skipped_duplicates == ["MLB2"]
-    # Supplement after quota would not be processed; ensure we stopped at valid limit
-    assert all(p.product_type == "notebook" for p in outcome.success)
+    assert counters.observed == 2
+    assert kept_skus == ["MLB1", "MLB2"]
+    assert counters.excluded == 1
+    assert counters.valid == 1
+    assert "MLB4" not in kept_skus
+    assert "MLB6" not in kept_skus
 
 
 def test_duplicate_products_do_not_count_twice() -> None:

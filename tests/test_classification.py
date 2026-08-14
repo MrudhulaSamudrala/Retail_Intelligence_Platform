@@ -195,3 +195,14 @@ def test_empty_inputs_return_unknown() -> None:
     assert result.oem == UNKNOWN
     assert result.brand_reason == "insufficient_brand_evidence"
     assert result.oem_reason == "insufficient_oem_evidence"
+
+
+def test_mediatek_is_other_brand_not_unknown() -> None:
+    from collector.classification import OTHER
+
+    brand, reason = classify_brand(title="Chromebook MediaTek Kompanio 520")
+    assert brand == OTHER
+    assert "other_soc" in reason
+    unknown, _ = classify_brand(title="15 Inch Notebook 16GB RAM")
+    assert unknown == UNKNOWN
+    assert brand != unknown

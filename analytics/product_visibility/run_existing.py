@@ -36,6 +36,9 @@ def _fmt_vis(row) -> str:
         f"  Top-3/5/10/20: {row.top3_appearances}/{row.top5_appearances}/"
         f"{row.top10_appearances}/{row.top20_appearances}\n"
         f"  Average rank: {row.average_rank}\n"
+        f"  Strata: {', '.join(row.strata) or 'n/a'}\n"
+        f"  Collection: {row.collection_status}\n"
+        f"  Source: {row.observation_source}\n"
         f"  Visibility score: {row.visibility_score}"
     )
 

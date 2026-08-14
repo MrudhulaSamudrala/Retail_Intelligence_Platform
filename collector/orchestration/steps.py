@@ -87,13 +87,13 @@ async def run_newegg_products(
     status = STATUS_SUCCESS
     if outcome.status == "failed":
         status = STATUS_FAILED
-    elif outcome.status == "partial" or outcome.failed:
+    elif outcome.status == "partial":
         status = STATUS_PARTIAL
 
     return StepResult(
         component="newegg",
         status=status,
-        records_processed=len(outcome.success),
+        records_processed=outcome.observed or len(outcome.success),
         error_message="; ".join(
             str(e.get("error") if isinstance(e, dict) else e)
             for e in (outcome.failed or [])[:5]
@@ -110,6 +110,9 @@ async def run_newegg_products(
             "price_rows_created": int(after_prices) - int(before_prices),
             "skipped_duplicates": len(outcome.skipped_duplicates),
             "bot_blocked": outcome.bot_blocked,
+            "universe": outcome.universe or None,
+            "requested": outcome.requested,
+            "observed": outcome.observed,
         },
         started_at=started,
         completed_at=datetime.now(timezone.utc),
@@ -157,13 +160,15 @@ async def run_mercadolibre_products(
     status = STATUS_SUCCESS
     if outcome.status == "failed":
         status = STATUS_FAILED
-    elif outcome.status == "partial" or outcome.failed:
+    elif outcome.status == "partial" or (
+        not (outcome.universe or {}) and outcome.failed
+    ):
         status = STATUS_PARTIAL
 
     return StepResult(
         component="mercadolibre",
         status=status,
-        records_processed=len(outcome.success),
+        records_processed=outcome.observed or len(outcome.success),
         error_message="; ".join(
             str(e.get("error") if isinstance(e, dict) else e)
             for e in (outcome.failed or [])[:5]
@@ -182,6 +187,9 @@ async def run_mercadolibre_products(
             "price_rows_created": int(after_prices) - int(before_prices),
             "skipped_duplicates": len(outcome.skipped_duplicates),
             "bot_blocked": outcome.bot_blocked,
+            "universe": outcome.universe or None,
+            "requested": outcome.requested,
+            "observed": outcome.observed,
         },
         started_at=started,
         completed_at=datetime.now(timezone.utc),

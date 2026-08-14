@@ -598,10 +598,20 @@ class SearchObservation(Base):
         String(32),
         nullable=False,
         default="COMPLETE",
-        doc="COMPLETE|PARTIAL|FAILED|ZERO_RESULTS",
+        doc="COMPLETE|PARTIAL|FAILED|ZERO_RESULTS|BLOCKED",
     )
     search_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     pages_collected: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    stratum: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+        doc="Catalog stratum (notebook/desktop/...). Null on historical keyword searches.",
+    )
+    observation_source: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+        doc="keyword_search | stratified_catalog. Null on pre-migration keyword rows.",
+    )
     details: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -621,4 +631,5 @@ class SearchObservation(Base):
         Index("ix_search_observations_brand_position", "brand", "position"),
         Index("ix_search_observations_product", "product_id"),
         Index("ix_search_observations_collection_status", "collection_status"),
+        Index("ix_search_observations_source_stratum", "observation_source", "stratum"),
     )

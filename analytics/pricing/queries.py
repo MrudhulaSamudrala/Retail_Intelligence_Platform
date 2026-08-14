@@ -2,6 +2,11 @@
 
 Reads append-only ``price_history``, ``product_snapshots``, ``promotions``, and
 ``products``. Never updates historical rows.
+
+Current (cross-sectional) KPIs use eligible computing products from the latest
+catalog/pricing collection batch per retailer/country. Historical time series
+use all matching ``price_history`` observations. Search observations are not a
+pricing fact table.
 """
 
 from __future__ import annotations
@@ -109,6 +114,82 @@ def _scope_price_filters(scope: PricingScope | None) -> list[Any]:
     return filters
 
 
+def _apply_current_universe(scope: PricingScope | None, *, latest_only: bool) -> bool:
+    scope = scope or PricingScope()
+    return bool(latest_only and scope.current_universe)
+
+
+def _product_is_pricing_eligible(product: Product) -> bool:
+    """Eligible computing types via the shared classifier. Brands are not a gate."""
+    from collector.retailers.mercadolibre.classification import (
+        EXCLUDED,
+        OTHER_TYPE,
+        SUPPORTED_PRODUCT_TYPES,
+        classify_mercadolibre_product,
+        is_collection_eligible,
+    )
+
+    stored = (product.product_type or "").strip().lower()
+    if stored == OTHER_TYPE:
+        return False
+    classified = classify_mercadolibre_product(
+        title=product.title, category_raw=product.category_raw
+    )
+    if classified.status == EXCLUDED or classified.hard_negative:
+        return False
+    if classified.product_type == OTHER_TYPE:
+        return False
+    if stored in SUPPORTED_PRODUCT_TYPES:
+        return True
+    return is_collection_eligible(classified)
+
+
+def _latest_batch_product_ids(
+    session: Session, scope: PricingScope | None
+) -> set[int]:
+    """Products priced in the latest collection_run per retailer/country."""
+    filters = _scope_product_filters(scope) + _scope_price_filters(scope)
+    ranked = (
+        select(
+            Product.retailer_code.label("retailer_code"),
+            Product.country_code.label("country_code"),
+            PriceHistory.collection_run_id.label("run_id"),
+            func.row_number()
+            .over(
+                partition_by=(Product.retailer_code, Product.country_code),
+                order_by=(PriceHistory.observed_at.desc(), PriceHistory.id.desc()),
+            )
+            .label("rn"),
+        )
+        .join(Product, Product.id == PriceHistory.product_id)
+        .where(PriceHistory.collection_run_id.is_not(None))
+        .where(and_(*filters) if filters else True)
+    ).subquery("latest_price_run")
+    run_rows = session.execute(
+        select(
+            ranked.c.retailer_code,
+            ranked.c.country_code,
+            ranked.c.run_id,
+        ).where(ranked.c.rn == 1)
+    ).all()
+    if not run_rows:
+        return set()
+    product_ids: set[int] = set()
+    for retailer, country, run_id in run_rows:
+        stmt = (
+            select(PriceHistory.product_id)
+            .join(Product, Product.id == PriceHistory.product_id)
+            .where(PriceHistory.collection_run_id == int(run_id))
+            .where(Product.retailer_code == retailer)
+            .where(Product.country_code == country)
+        )
+        extra = _scope_product_filters(scope) + _scope_price_filters(scope)
+        if extra:
+            stmt = stmt.where(and_(*extra))
+        product_ids.update(int(pid) for pid in session.scalars(stmt).all())
+    return product_ids
+
+
 def _latest_price_ids_stmt(scope: PricingScope | None = None) -> Select[Any]:
     """IDs of the latest price_history row per product under scope filters."""
     filters = _scope_product_filters(scope) + _scope_price_filters(scope)
@@ -137,9 +218,10 @@ def list_price_observations(
     """Load priced observations joined to product dimensions.
 
     When ``latest_only`` is True (default), returns one row per product — the
-    newest ``price_history`` observation in scope. Promotion text comes from the
-    newest matching ``promotions.promo_text`` for that product when present.
+    newest ``price_history`` observation in the current eligible catalog batch.
+    Promotion text is shown only when that latest price row is on promotion.
     """
+    scope = scope or PricingScope()
     filters = _scope_product_filters(scope) + _scope_price_filters(scope)
     stmt = (
         select(PriceHistory, Product)
@@ -152,13 +234,20 @@ def list_price_observations(
         stmt = stmt.where(PriceHistory.id.in_(latest_ids))
 
     rows = session.execute(stmt).all()
+    if _apply_current_universe(scope, latest_only=latest_only):
+        batch_ids = _latest_batch_product_ids(session, scope)
+        rows = [
+            (price, product)
+            for price, product in rows
+            if int(product.id) in batch_ids and _product_is_pricing_eligible(product)
+        ]
 
-    # Batch latest promo text per product for the returned set
     product_ids = {product.id for _, product in rows}
     promo_by_product = _latest_promo_texts(session, product_ids)
 
     out: list[PriceObservation] = []
     for price, product in rows:
+        on_promo = bool(price.is_on_promotion)
         out.append(
             PriceObservation(
                 product_id=product.id,
@@ -170,8 +259,8 @@ def list_price_observations(
                 current_price=_as_decimal(price.price_amount),
                 original_price=_as_decimal(price.list_price),
                 discount_pct=_as_decimal(price.discount_pct),
-                promotion_text=promo_by_product.get(product.id),
-                is_on_promotion=bool(price.is_on_promotion),
+                promotion_text=promo_by_product.get(product.id) if on_promo else None,
+                is_on_promotion=on_promo,
                 observed_at=price.observed_at,
                 source="price_history",
             )
@@ -228,8 +317,18 @@ def list_snapshot_pricing_rows(
             ProductSnapshot.id.in_(select(ranked.c.snap_id).where(ranked.c.rn == 1))
         )
 
+    pairs = list(session.execute(stmt).all())
+    if _apply_current_universe(scope, latest_only=latest_only):
+        batch_ids = _latest_batch_product_ids(session, scope)
+        pairs = [
+            (snap, product)
+            for snap, product in pairs
+            if int(product.id) in batch_ids and _product_is_pricing_eligible(product)
+        ]
+
     out: list[PriceObservation] = []
-    for snap, product in session.execute(stmt).all():
+    for snap, product in pairs:
+        on_promo = bool(snap.is_on_promotion)
         out.append(
             PriceObservation(
                 product_id=product.id,
@@ -241,8 +340,8 @@ def list_snapshot_pricing_rows(
                 current_price=_as_decimal(snap.price_amount),
                 original_price=_as_decimal(snap.list_price),
                 discount_pct=_as_decimal(snap.discount_pct),
-                promotion_text=snap.promo_text,
-                is_on_promotion=bool(snap.is_on_promotion),
+                promotion_text=snap.promo_text if on_promo else None,
+                is_on_promotion=on_promo,
                 observed_at=snap.observed_at,
                 source="product_snapshots",
             )

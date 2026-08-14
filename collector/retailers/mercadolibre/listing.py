@@ -214,6 +214,7 @@ async def extract_listings_from_page(
           }
         }
         const tileText = (card.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 800);
+        const sponsored = !!(card.querySelector('[class*="advertising"], [class*="sponsored"], .ui-search-item__ad-label, .poly-component__ads-promotions'));
         out.push({
           title,
           href,
@@ -228,6 +229,7 @@ async def extract_listings_from_page(
           badge_alts: badgeAlts,
           badge_texts: badgeTexts,
           tile_text: tileText,
+          sponsored,
         });
       }
       return out;
@@ -274,6 +276,7 @@ async def extract_listings_from_page(
                 "promo_text": promo,
                 "title": title,
                 "href": card.get("href"),
+                "is_sponsored": bool(card.get("sponsored")),
             },
         )
         if cand:

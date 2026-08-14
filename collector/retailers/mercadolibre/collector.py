@@ -15,7 +15,7 @@ from collector.retailers.mercadolibre.classification import (
     is_collection_eligible,
 )
 from collector.retailers.mercadolibre.discovery import load_discovery_config
-from collector.retailers.mercadolibre.listing import dedupe_candidates, extract_listings_from_page
+from collector.retailers.mercadolibre.listing import extract_listings_from_page
 from collector.retailers.mercadolibre.product_page import (
     build_from_listing,
     is_account_verification,
@@ -23,13 +23,20 @@ from collector.retailers.mercadolibre.product_page import (
     parse_product_page,
 )
 from collector.retailers.mercadolibre.layers import is_network_payload_useful
-from collector.retailers.mercadolibre.relevance import is_in_collection_scope, title_looks_irrelevant
+from collector.retailers.mercadolibre.relevance import is_in_collection_scope
+from collector.universe_config import (
+    allocate_stratum_budgets,
+    generic_query_for,
+    load_search_universe_config,
+    stamp_stratum_candidate,
+)
 
 logger = logging.getLogger("collector.mercadolibre")
 
 
 class MercadoLibreCollector(RetailerCollector):
     code = "mercadolibre"
+    uses_observed_result_limit = True
 
     def __init__(self) -> None:
         cfg = get_retailer("mercadolibre")
@@ -40,6 +47,8 @@ class MercadoLibreCollector(RetailerCollector):
         self.allow_listing_only = bool(
             self.discovery.get("allow_listing_only_fallback", True)
         )
+        self.discovery_stats: dict[str, Any] = {}
+        self.stratum_filter: str | None = None
 
     def build_browser_session(self) -> BrowserSession:
         """Portuguese locale; do not enable Chrome Translate."""
@@ -71,26 +80,41 @@ class MercadoLibreCollector(RetailerCollector):
         )
 
     async def _page_blocked(self, page) -> str | None:
-        content = await page.content()
-        title = await page.title()
-        url = page.url
+        try:
+            content = await page.content()
+            title = await page.title()
+            url = page.url
+        except Exception:  # noqa: BLE001 - navigation races; do not invent a block
+            return None
         if is_account_verification(content, url) or is_account_verification(title, url):
             return "account_verification"
         if is_bot_challenge(content) or is_bot_challenge(title):
             return "bot_challenge"
         return None
 
-    def _discovery_entries(self) -> list[tuple[str, dict[str, Any]]]:
-        """Return (tier, entry) with primary first, then secondary/legacy."""
-        entries: list[tuple[str, dict[str, Any]]] = []
-        for item in self.discovery.get("discovery_primary") or []:
-            entries.append(("primary", item))
-        for item in self.discovery.get("discovery_secondary") or []:
-            entries.append(("secondary", item))
-        # Legacy single list (empty in new YAML).
-        for item in self.discovery.get("discovery") or []:
-            entries.append(("legacy", item))
-        return entries
+    def _entries_for_stratum(
+        self, stratum: str, *, tier: str
+    ) -> list[dict[str, Any]]:
+        key = "discovery_primary" if tier == "primary" else "discovery_secondary"
+        out: list[dict[str, Any]] = []
+        for item in self.discovery.get(key) or []:
+            name = str(item.get("stratum") or item.get("name") or "").lower()
+            if name == stratum or str(item.get("stratum") or "").lower() == stratum:
+                out.append(item)
+        return out
+
+    def _empty_discovery_stats(self, *, query: str, url: str) -> dict[str, Any]:
+        return {
+            "pages_attempted": 0,
+            "pages_inspected": 0,
+            "pages_blocked": 0,
+            "pagination_reliable": True,
+            "last_observed_position": 0,
+            "search_status": "OK",
+            "query": query,
+            "search_url": url,
+            "stop_reason": None,
+        }
 
     async def _harvest_entry(
         self,
@@ -101,15 +125,27 @@ class MercadoLibreCollector(RetailerCollector):
         tier: str,
         card_budget: int,
         collected: list[ListingCandidate],
+        stats: dict[str, Any],
     ) -> tuple[int, int]:
-        """Harvest one discovery URL. Returns (kept, irrelevant)."""
+        """Harvest one discovery URL. Returns (kept, excluded_classified).
+
+        Ineligible titles are still kept — they consume observation slots.
+        ``card_budget`` is this harvest's native-position budget (stratum).
+        """
+        universe = load_search_universe_config()
         limits = self.discovery.get("limits") or {}
         url = entry["url"]
         discovery_name = entry.get("name")
+        query = str(entry.get("query") or generic_query_for(self.code))
         surface = entry.get("surface") or tier
         category_raw = entry.get("category_label") or None
-        irrelevant_seen = 0
+        excluded_seen = 0
         kept = 0
+        stats["query"] = query
+        stats["search_url"] = url
+        stats["discovery_surface"] = surface
+        stats["ranked_search_ok"] = True
+        stats["used_fallback"] = tier == "secondary"
 
         logger.info(
             "mercadolibre_discovery_open",
@@ -122,6 +158,7 @@ class MercadoLibreCollector(RetailerCollector):
                 "surface": surface,
             },
         )
+        stats["pages_attempted"] += 1
         await session.goto(page, url, wait_until="domcontentloaded")
         await page.wait_for_timeout(2500)
         blocked = await self._page_blocked(page)
@@ -138,28 +175,48 @@ class MercadoLibreCollector(RetailerCollector):
                 },
             )
             await session.screenshot(page, label=f"ml_discovery_{blocked}")
+            stats["pages_blocked"] += 1
+            stats["pagination_reliable"] = False
+            stats["ranked_search_ok"] = False
+            if tier == "primary":
+                stats["search_status"] = "BLOCKED"
+            stats["stop_reason"] = blocked
             return 0, 0
 
-        max_pages = int(limits.get("max_pages_per_query") or 1)
+        max_pages = int(limits.get("max_pages_per_query") or universe.max_pages)
         for page_idx in range(max_pages):
+            if page_idx > 0:
+                stats["pages_attempted"] += 1
             for _ in range(3):
                 await page.mouse.wheel(0, 2200)
                 await page.wait_for_timeout(800)
 
+            page_blocked = await self._page_blocked(page)
+            if page_blocked:
+                stats["pages_blocked"] += 1
+                stats["pagination_reliable"] = False
+                stats["stop_reason"] = page_blocked
+                if page_idx == 0 and kept == 0:
+                    stats["search_status"] = "BLOCKED"
+                    stats["ranked_search_ok"] = False
+                break
+
             batch = await extract_listings_from_page(page, category_raw=category_raw)
             page_kept = 0
             for cand in batch:
+                if kept >= card_budget:
+                    break
                 result = classify_mercadolibre_product(
                     title=cand.title,
                     category_raw=category_raw,
                     discovery_name=str(discovery_name) if discovery_name else None,
                 )
                 if not is_collection_eligible(result):
-                    irrelevant_seen += 1
-                    continue
-                if title_looks_irrelevant(cand.title):
-                    irrelevant_seen += 1
-                    continue
+                    excluded_seen += 1
+                native_position = kept + 1
+                cand.search_position = native_position
+                cand.search_page = page_idx + 1
+                cand.query = query
                 cand.raw = {
                     **(cand.raw or {}),
                     "discovery_name": discovery_name,
@@ -180,18 +237,29 @@ class MercadoLibreCollector(RetailerCollector):
                     "page_idx": page_idx,
                     "count": len(batch),
                     "kept": page_kept,
-                    "irrelevant_seen": irrelevant_seen,
+                    "excluded_observed": excluded_seen,
                     "tier": tier,
                     "retailer": self.code,
                 },
             )
-            await session.screenshot(page, label=f"ml_listing_{tier}")
-            if len(dedupe_candidates(collected)) >= card_budget:
+            await session.screenshot(page, label=f"ml_listing_{tier}_p{page_idx + 1}")
+            if page_kept == 0:
+                stats["stop_reason"] = "empty_page" if page_idx == 0 else "empty_later_page"
+                if universe.stop_on_empty_page:
+                    break
+            else:
+                stats["pages_inspected"] += 1
+            if kept >= card_budget:
+                stats["stop_reason"] = "requested_depth"
                 break
 
             if page_idx + 1 >= max_pages:
+                if kept < card_budget:
+                    stats["pagination_reliable"] = False
+                    stats["stop_reason"] = stats["stop_reason"] or "max_pages_reached"
                 break
             next_clicked = False
+            next_present = False
             for sel in (
                 "li.andes-pagination__button--next a",
                 "a.andes-pagination__link[title='Seguinte']",
@@ -201,17 +269,25 @@ class MercadoLibreCollector(RetailerCollector):
                 loc = page.locator(sel)
                 try:
                     if await loc.count():
+                        next_present = True
                         await loc.first.click(timeout=2000)
                         await page.wait_for_timeout(2000)
                         next_clicked = True
                         break
                 except Exception:  # noqa: BLE001
+                    stats["pagination_reliable"] = False
+                    stats["stop_reason"] = "pagination_click_failed"
                     continue
+            if next_present and not next_clicked:
+                stats["pagination_reliable"] = False
+                stats["stop_reason"] = "pagination_unreliable"
+                break
             if not next_clicked:
+                stats["stop_reason"] = stats["stop_reason"] or "no_next_page"
                 break
 
         await asyncio.sleep(0.8)
-        return kept, irrelevant_seen
+        return kept, excluded_seen
 
     async def discover_listings(
         self,
@@ -219,76 +295,214 @@ class MercadoLibreCollector(RetailerCollector):
         *,
         limit: int,
     ) -> list[ListingCandidate]:
-        """Discover unique in-scope listing candidates.
+        """Discover listing candidates per stratum in native SERP order.
 
-        Primary search/category surfaces first; ofertas only as secondary
-        enrichment when primary yield is insufficient.
+        ``limit`` is the total observation target across strata.
+        Ineligible products are kept. Secondary surfaces open only when
+        that stratum's ranked search yields zero observable results.
+        Fallback never makes the stratum COMPLETE.
         """
         page = await session.new_page()
         collected: list[ListingCandidate] = []
-        irrelevant_total = 0
-        limits = self.discovery.get("limits") or {}
-        overscan = int(limits.get("discovery_overscan_factor") or 4)
-        secondary_after = int(limits.get("secondary_after_unique") or 8)
-        target = max(limit, 1)
-        card_budget = max(target * overscan, target)
+        excluded_total = 0
+        allocated = allocate_stratum_budgets(
+            self.code, total_limit=limit, stratum_filter=self.stratum_filter
+        )
+        stratum_reports: list[dict[str, Any]] = []
+        pages_attempted = 0
+        pages_inspected = 0
+        pages_blocked = 0
+        pagination_reliable = True
+        queries: list[str] = []
+        universe_slot = 0
         try:
-            entries = self._discovery_entries()
-            primary_entries = [e for t, e in entries if t == "primary"]
-            secondary_entries = [e for t, e in entries if t in {"secondary", "legacy"}]
-
-            for entry in primary_entries:
-                if len(dedupe_candidates(collected)) >= card_budget:
-                    break
-                _kept, irr = await self._harvest_entry(
+            for spec, budget in allocated:
+                queries.append(spec.query)
+                harvest_stats = self._empty_discovery_stats(query=spec.query, url=spec.url)
+                harvest_stats["ranked_search_ok"] = True
+                harvest_stats["used_fallback"] = False
+                before = len(collected)
+                primary_entries = self._entries_for_stratum(spec.name, tier="primary")
+                if not primary_entries:
+                    primary_entries = [
+                        {
+                            "name": spec.name,
+                            "stratum": spec.name,
+                            "surface": "search",
+                            "query": spec.query,
+                            "url": spec.url,
+                            "product_type_hint": spec.product_type_hint,
+                            "category_label": f"search:{spec.query}",
+                        }
+                    ]
+                _kept, excl = await self._harvest_entry(
                     session,
                     page,
-                    entry,
+                    primary_entries[0],
                     tier="primary",
-                    card_budget=card_budget,
+                    card_budget=budget,
                     collected=collected,
+                    stats=harvest_stats,
                 )
-                irrelevant_total += irr
+                excluded_total += excl
+                used_fallback = False
+                ranked_ok = bool(harvest_stats.get("ranked_search_ok", True)) and str(
+                    harvest_stats.get("search_status") or ""
+                ) != "BLOCKED"
+                if len(collected) == before:
+                    secondary_entries = self._entries_for_stratum(spec.name, tier="secondary")
+                    if spec.fallback_url and not secondary_entries:
+                        secondary_entries = [
+                            {
+                                "name": f"{spec.name}_ofertas",
+                                "stratum": spec.name,
+                                "surface": "ofertas",
+                                "query": spec.query,
+                                "url": spec.fallback_url,
+                                "product_type_hint": spec.product_type_hint,
+                                "category_label": "ofertas_query",
+                            }
+                        ]
+                    if secondary_entries:
+                        logger.info(
+                            "mercadolibre_discovery_secondary",
+                            extra={
+                                "event": "mercadolibre_discovery_secondary",
+                                "stratum": spec.name,
+                                "reason": "primary_zero_observable",
+                                "retailer": self.code,
+                            },
+                        )
+                        fallback_stats = self._empty_discovery_stats(
+                            query=spec.query, url=str(secondary_entries[0].get("url") or "")
+                        )
+                        _kept, excl = await self._harvest_entry(
+                            session,
+                            page,
+                            secondary_entries[0],
+                            tier="secondary",
+                            card_budget=budget,
+                            collected=collected,
+                            stats=fallback_stats,
+                        )
+                        excluded_total += excl
+                        used_fallback = len(collected) > before
+                        harvest_stats["pages_attempted"] = int(
+                            harvest_stats.get("pages_attempted") or 0
+                        ) + int(fallback_stats.get("pages_attempted") or 0)
+                        harvest_stats["pages_inspected"] = int(
+                            harvest_stats.get("pages_inspected") or 0
+                        ) + int(fallback_stats.get("pages_inspected") or 0)
+                        harvest_stats["pages_blocked"] = int(
+                            harvest_stats.get("pages_blocked") or 0
+                        ) + int(fallback_stats.get("pages_blocked") or 0)
+                        harvest_stats["pagination_reliable"] = False
+                        harvest_stats["used_fallback"] = used_fallback
+                        harvest_stats["fallback_surface"] = "ofertas"
+                        harvest_stats["stop_reason"] = harvest_stats.get(
+                            "stop_reason"
+                        ) or fallback_stats.get("stop_reason")
 
-            unique_primary = len(dedupe_candidates(collected))
-            need_secondary = unique_primary < max(secondary_after, target)
-            if need_secondary:
-                logger.info(
-                    "mercadolibre_discovery_secondary",
-                    extra={
-                        "event": "mercadolibre_discovery_secondary",
-                        "unique_primary": unique_primary,
-                        "secondary_after": secondary_after,
-                        "retailer": self.code,
-                    },
-                )
-                for entry in secondary_entries:
-                    if len(dedupe_candidates(collected)) >= card_budget:
-                        break
-                    _kept, irr = await self._harvest_entry(
-                        session,
-                        page,
-                        entry,
-                        tier="secondary",
-                        card_budget=card_budget,
-                        collected=collected,
+                batch = collected[before:]
+                native = 0
+                for cand in batch:
+                    native += 1
+                    universe_slot += 1
+                    stamp_stratum_candidate(
+                        cand,
+                        stratum=spec.name,
+                        query=spec.query,
+                        search_position=int(cand.search_position or native),
+                        search_page=int(cand.search_page or 1),
+                        universe_slot=universe_slot,
+                        surface="ofertas" if used_fallback else "search",
+                        used_fallback=used_fallback,
+                        product_type_hint=spec.product_type_hint,
                     )
-                    irrelevant_total += irr
+                    cand.stratum = spec.name
+                    cand.universe_slot = universe_slot
+                    cand.raw = {
+                        **(cand.raw or {}),
+                        "ranked_search": not used_fallback,
+                    }
+                pages_attempted += int(harvest_stats.get("pages_attempted") or 0)
+                pages_inspected += int(harvest_stats.get("pages_inspected") or 0)
+                pages_blocked += int(harvest_stats.get("pages_blocked") or 0)
+                pagination_reliable = pagination_reliable and bool(
+                    harvest_stats.get("pagination_reliable", True)
+                ) and not used_fallback
+                from collector.observation import stratum_completeness
+
+                completeness = stratum_completeness(
+                    requested=budget,
+                    observed=native,
+                    ranked_search_ok=ranked_ok,
+                    used_fallback=used_fallback,
+                    search_blocked=str(harvest_stats.get("search_status") or "")
+                    == "BLOCKED",
+                )
+                stratum_reports.append(
+                    {
+                        "stratum": spec.name,
+                        "query": spec.query,
+                        "requested": budget,
+                        "observed": native,
+                        "completeness": completeness,
+                        "pages_attempted": harvest_stats.get("pages_attempted", 0),
+                        "pages_inspected": harvest_stats.get("pages_inspected", 0),
+                        "pages_blocked": harvest_stats.get("pages_blocked", 0),
+                        "pagination_reliable": harvest_stats.get(
+                            "pagination_reliable", True
+                        )
+                        and not used_fallback,
+                        "last_observed_position": native,
+                        "search_status": harvest_stats.get("search_status", "OK"),
+                        "stop_reason": harvest_stats.get("stop_reason"),
+                        "search_url": harvest_stats.get("search_url") or spec.url,
+                        "ranked_search_ok": ranked_ok,
+                        "used_fallback": used_fallback,
+                        "ranking_scope": "stratum_query",
+                        "discovery_surface": "ofertas" if used_fallback else "search",
+                    }
+                )
         finally:
             await page.close()
 
-        unique = dedupe_candidates(collected)
+        blocked_all = bool(stratum_reports) and all(
+            str(item.get("search_status")) == "BLOCKED" and not item.get("used_fallback")
+            for item in stratum_reports
+        )
+        self.discovery_stats = {
+            "pages_attempted": pages_attempted,
+            "pages_inspected": pages_inspected,
+            "pages_blocked": pages_blocked,
+            "pagination_reliable": pagination_reliable,
+            "last_observed_position": max(
+                (int(item.get("last_observed_position") or 0) for item in stratum_reports),
+                default=0,
+            ),
+            "search_status": "BLOCKED" if blocked_all else "OK",
+            "query": queries[0] if len(queries) == 1 else queries,
+            "queries": queries,
+            "stop_reason": None
+            if all(item.get("completeness") == "COMPLETE" for item in stratum_reports)
+            else "stratum_incomplete",
+            "strata": stratum_reports,
+            "universe_slots": universe_slot,
+        }
         logger.info(
             "mercadolibre_discovery_summary",
             extra={
                 "event": "mercadolibre_discovery_summary",
-                "unique_candidates": len(unique),
-                "irrelevant_skipped": irrelevant_total,
-                "target_valid": target,
+                "observable_candidates": len(collected),
+                "excluded_classified": excluded_total,
+                "observation_target": limit,
+                "strata": [item["stratum"] for item in stratum_reports],
+                "search_status": self.discovery_stats.get("search_status"),
                 "retailer": self.code,
             },
         )
-        return unique[:card_budget]
+        return collected
 
     async def fetch_product(
         self,
@@ -430,6 +644,11 @@ class MercadoLibreCollector(RetailerCollector):
                             "discovery_tier",
                             "discovery_surface",
                             "product_type_hint",
+                            "stratum",
+                            "universe_slot",
+                            "ranking_scope",
+                            "used_fallback",
+                            "ranked_search",
                         }
                     },
                 }

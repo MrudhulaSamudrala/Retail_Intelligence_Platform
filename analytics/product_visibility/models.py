@@ -8,6 +8,10 @@ from decimal import Decimal
 from typing import Optional
 
 
+VISIBILITY_SOURCE_STRATIFIED_CATALOG = "stratified_catalog"
+VISIBILITY_SOURCE_KEYWORD_SEARCH = "keyword_search"
+
+
 @dataclass(frozen=True)
 class VisibilityScope:
     retailer_code: Optional[str] = None
@@ -21,6 +25,8 @@ class VisibilityScope:
     # When True, only rows resolved to a ``products`` row (catalog visibility).
     require_linked_product: bool = False
     top_n: int = 20
+    observation_source: str = VISIBILITY_SOURCE_STRATIFIED_CATALOG
+    stratum: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +48,12 @@ class ProductVisibilityRow:
     average_rank: Optional[Decimal]
     keywords: tuple[str, ...]
     visibility_score: Decimal
+    observation_source: str = VISIBILITY_SOURCE_STRATIFIED_CATALOG
+    strata: tuple[str, ...] = ()
+    positions_by_stratum: tuple[tuple[str, int], ...] = ()
+    collection_status: str = "PARTIAL"
+    stratum_status: tuple[tuple[str, str], ...] = ()
+    requested_budgets: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True)

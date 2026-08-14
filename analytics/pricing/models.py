@@ -19,6 +19,10 @@ class PricingScope:
     currency: Optional[str] = None
     observed_from: Optional[datetime] = None
     observed_to: Optional[datetime] = None
+    current_universe: bool = True
+    """When True (default), cross-sectional KPIs use eligible products from the
+    latest catalog/pricing collection batch per retailer/country. Time series
+    still reads all matching ``price_history`` rows."""
 
 
 @dataclass(frozen=True)

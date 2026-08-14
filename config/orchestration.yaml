@@ -3,7 +3,7 @@
 
 orchestration:
   trigger_source: cli  # overridden by RENDER / CRON env when present
-  product_limit_per_retailer: 20
+  product_limit_per_retailer: 100
   search_limit_per_retailer: 3
   stale_running_hours: 6
   concurrent_lock_key: 74628301  # PostgreSQL advisory lock key
@@ -12,7 +12,7 @@ orchestration:
     max_attempts: 3
     base_delay_seconds: 2
   timeouts:
-    component_seconds: 1800
+    component_seconds: 3600
     page_timeout_ms: 45000
 
 # Table write semantics (documentation for operators):

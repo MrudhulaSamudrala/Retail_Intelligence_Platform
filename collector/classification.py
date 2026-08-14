@@ -36,12 +36,14 @@ _BRAND_STRONG: list[tuple[str, re.Pattern[str]]] = [
     ("AMD", re.compile(r"\bathlon\b", re.I)),
     # Qualcomm
     ("Qualcomm", re.compile(r"\bqualcomm\s+snapdragon\b", re.I)),
+    ("Qualcomm", re.compile(r"\bsnapdragon\s+x2\b", re.I)),
+    ("Qualcomm", re.compile(r"\bsnapdragon\s+x\s*2\b", re.I)),
     ("Qualcomm", re.compile(r"\bsnapdragon\s+x\s+(?:elite|plus)\b", re.I)),
     ("Qualcomm", re.compile(r"\bsnapdragon\b", re.I)),
-    # Apple Silicon / M-series
+    # Apple Silicon / M-series (M1–M5). Bare "Apple iPad" is not platform evidence.
     ("Apple", re.compile(r"\bapple\s+silicon\b", re.I)),
-    ("Apple", re.compile(r"\bapple\s+m[1-4](?:\s*(?:pro|max|ultra))?\b", re.I)),
-    ("Apple", re.compile(r"\bm[1-4]\s*(?:pro|max|ultra)\b", re.I)),
+    ("Apple", re.compile(r"\bapple\s+m[1-5](?:\s*(?:pro|max|ultra))?\b", re.I)),
+    ("Apple", re.compile(r"\bm[1-5]\s*(?:pro|max|ultra)\b", re.I)),
 ]
 
 # Weaker vendor tokens — only trusted in processor / manufacturer fields.
@@ -56,7 +58,7 @@ _APPLE_CONTEXT = re.compile(
     r"\b(?:apple|macbook|imac|mac\s*mini|mac\s*studio|mac\s*pro|apple\s+silicon)\b",
     re.I,
 )
-_APPLE_M_BARE = re.compile(r"\bm[1-4]\b", re.I)
+_APPLE_M_BARE = re.compile(r"\bm[1-5]\b", re.I)
 
 # Identified chip/SoC vendors that are not tracked analytical brands → OTHER.
 _BRAND_OTHER_SOC: list[re.Pattern[str]] = [
@@ -73,6 +75,44 @@ _BRAND_OTHER_SOC: list[re.Pattern[str]] = [
     re.compile(r"\brockchip\b", re.I),
 ]
 _GPU_OTHER_VENDOR = re.compile(r"\b(nvidia|geforce)\b", re.I)
+_AMD_GPU_EVIDENCE = re.compile(
+    r"\b(amd\s+radeon|radeon\s+rx|radeon\b|gpu\s+series:\s*amd|"
+    r"chipset\s+manufacturer:\s*amd)\b",
+    re.I,
+)
+_SYSTEM_COMPUTER_RE = re.compile(
+    r"\b(laptops?|notebooks?|chromebooks?|macbooks?|ultrabooks?|"
+    r"desktop\s+pcs?|desktop\s+computers?|gaming\s+desktops?|"
+    r"pre-?built|all[- ]in[- ]ones?|mini\s*pcs?|\bimacs?\b|mac\s*minis?)\b",
+    re.I,
+)
+_DISCRETE_GPU_CARD_RE = re.compile(
+    r"\b(graphics\s+cards?|video\s+cards?|gpu\s+boards?|"
+    r"geforce\s+(?:rtx|gtx)|nvidia\s+(?:geforce|rtx|gtx)|"
+    r"radeon\s+rx|radeon\s+\d{2,4}|rx\s+\d{3,4}|"
+    r"rtx\s+\d{3,4}|gtx\s+\d{3,4})\b",
+    re.I,
+)
+
+
+def is_system_computer_title(title: Optional[str]) -> bool:
+    """True when the listing is a complete computer, not a CPU/GPU component."""
+    return bool(title and _SYSTEM_COMPUTER_RE.search(title))
+
+
+def is_discrete_gpu_product(
+    *,
+    title: Optional[str] = None,
+    product_type: Optional[str] = None,
+    gpu: Optional[str] = None,
+) -> bool:
+    """True for a graphics-card listing (not a notebook/desktop that merely has a GPU)."""
+    if (product_type or "").lower() == "gpu":
+        return True
+    if is_system_computer_title(title):
+        return False
+    blob = f"{title or ''} {gpu or ''}"
+    return bool(_DISCRETE_GPU_CARD_RE.search(blob))
 
 
 @dataclass(frozen=True)
@@ -159,6 +199,7 @@ def classify_brand(
     specifications: Optional[Any] = None,
     description: Optional[str] = None,
     product_type: Optional[str] = None,
+    gpu: Optional[str] = None,
 ) -> tuple[str, str]:
     """Classify Brand independently. Returns ``(brand, reason)``.
 
@@ -204,6 +245,10 @@ def classify_brand(
             )
             return UNKNOWN, reason
         if value and reason:
+            if value == "Qualcomm" and label == "title":
+                return value, "snapdragon_title"
+            if value == "Apple" and label == "processor":
+                return value, "apple_silicon_processor"
             return value, reason
 
     other_stages: list[tuple[str, str]] = [
@@ -219,6 +264,28 @@ def classify_brand(
             return OTHER, f"matched_other_soc_in_{label}"
         if (product_type or "").lower() == "gpu" and _GPU_OTHER_VENDOR.search(text):
             return OTHER, f"matched_other_gpu_vendor_in_{label}"
+
+    # GPU platform brand is independent of CPU/SoC fields. Do not run this
+    # on notebooks/desktops that merely mention a discrete GPU.
+    if is_discrete_gpu_product(title=title, product_type=product_type, gpu=gpu):
+        gpu_stages: list[tuple[str, str]] = [
+            ("gpu", _normalize_space(gpu)),
+            ("title", _normalize_space(title)),
+            ("specifications", _normalize_space(_specs_to_text(specifications))),
+        ]
+        for label, text in gpu_stages:
+            if not text:
+                continue
+            if _AMD_GPU_EVIDENCE.search(text) or (
+                label == "gpu" and re.search(r"\bamd\b", text, re.I)
+            ):
+                if re.search(r"chipset\s+manufacturer:\s*amd", text, re.I) or (
+                    label == "gpu" and re.search(r"\bamd\b", text, re.I)
+                ):
+                    return "AMD", "gpu_chipset_manufacturer"
+                return "AMD", "radeon_gpu_series"
+            if _GPU_OTHER_VENDOR.search(text):
+                return OTHER, f"matched_other_gpu_vendor_in_{label}"
 
     reason = "insufficient_brand_evidence"
     logger.info("brand_unknown", extra={"event": "brand_unknown", "reason": reason})
@@ -304,6 +371,7 @@ def classify_product(
     specifications: Optional[Any] = None,
     description: Optional[str] = None,
     product_type: Optional[str] = None,
+    gpu: Optional[str] = None,
 ) -> ClassificationResult:
     """Classify Brand and OEM independently from ordered evidence fields."""
     brand, brand_reason = classify_brand(
@@ -313,6 +381,7 @@ def classify_product(
         specifications=specifications,
         description=description,
         product_type=product_type,
+        gpu=gpu,
     )
     oem, oem_reason = classify_oem(
         title=title,

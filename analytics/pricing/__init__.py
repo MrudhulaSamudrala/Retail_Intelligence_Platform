@@ -1,9 +1,12 @@
 """Pricing and promotion analytics over append-only database observations.
 
 Cross-sectional metrics (averages, medians, discounted counts, comparisons) use
-the **latest** ``price_history`` row per product within optional filters.
+the **latest** ``price_history`` row per product, limited to eligible computing
+products observed in the latest catalog/pricing collection batch per
+retailer/country.
 
-Time-series metrics bucket all matching observations by calendar day (UTC).
+Time-series metrics bucket **all** matching observations by calendar day (UTC)
+and are not limited to that current batch.
 
 Currencies are never converted: comparisons stay within a single currency unless
 the caller explicitly omits a currency filter (results are then grouped by

@@ -162,6 +162,16 @@ async def extract_listings_from_page(page, *, category_raw: Optional[str] = None
                         candidate.raw["features"] = features
                 except Exception:  # noqa: BLE001
                     pass
+                try:
+                    cls = ((await card.get_attribute("class")) or "").lower()
+                    head = ((await card.inner_text()) or "")[:240].lower()
+                    candidate.raw["is_sponsored"] = (
+                        "sponsored" in cls
+                        or "sponsored" in head
+                        or "ad-flag" in cls
+                    )
+                except Exception:  # noqa: BLE001
+                    candidate.raw.setdefault("is_sponsored", False)
                 items.append(candidate)
         if items:
             break

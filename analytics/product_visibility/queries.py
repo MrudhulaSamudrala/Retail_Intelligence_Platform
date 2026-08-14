@@ -2,6 +2,21 @@
 
 Retailer-specific visibility never mixes retailers.
 Cross-retailer visibility only uses MATCHED canonical pairs.
+
+Primary universe: ``observation_source = stratified_catalog``.
+Historical keyword_search / NULL rows are not mixed into the current snapshot.
+
+Score formula (unchanged):
+
+    score = w_appearances * appearances
+          + w_top3 * top3 + w_top5 * top5 + w_top10 * top10 + w_top20 * top20
+          + w_inv_rank * sum(1 / native_position)
+
+Appearances are search-result slots of the same product identity in the latest
+stratified batch (position-deduped per stratum). Duplicate SKU listings in the
+same query are repeated appearances of one product, not separate products.
+Excluded furniture/accessories occupy native rank in the SERP record but do
+not receive a visibility score.
 """
 
 from __future__ import annotations
@@ -18,11 +33,22 @@ from analytics.product_identity.config import load_product_identity_config
 from analytics.product_identity.matching import MATCHED
 from analytics.product_identity.queries import product_availability_matrix
 from analytics.product_visibility.models import (
+    VISIBILITY_SOURCE_KEYWORD_SEARCH,
+    VISIBILITY_SOURCE_STRATIFIED_CATALOG,
     CrossRetailerVisibilityRow,
     ProductVisibilityRow,
     VisibilityScope,
 )
-from analytics.share_of_voice.queries import _dedupe_latest_search
+from analytics.share_of_voice.models import SovScope
+from analytics.share_of_voice.queries import (
+    _dedupe_latest_search,
+    _is_duplicate_obs,
+    _is_excluded_obs,
+    _stratum_budget,
+    _stratum_name,
+    _stratum_status_map,
+)
+from collector.search.persist import is_stratified_catalog_observation
 from database.models import Product, ProductCrosswalk, SearchObservation
 
 
@@ -38,8 +64,36 @@ def _avg(values: list[int]) -> Optional[Decimal]:
     )
 
 
+def _source_for(scope: VisibilityScope) -> str:
+    raw = (scope.observation_source or VISIBILITY_SOURCE_STRATIFIED_CATALOG).strip()
+    if raw == VISIBILITY_SOURCE_KEYWORD_SEARCH:
+        return VISIBILITY_SOURCE_KEYWORD_SEARCH
+    return VISIBILITY_SOURCE_STRATIFIED_CATALOG
+
+
+def _details(row: SearchObservation) -> dict:
+    return row.details if isinstance(row.details, dict) else {}
+
+
+def _counts_toward_visibility_score(row: SearchObservation) -> bool:
+    """Excluded / unrelated slots keep native SERP rank but are not scored."""
+    if _is_excluded_obs(row):
+        return False
+    details = _details(row)
+    slot = str(details.get("slot_status") or details.get("extraction_status") or "")
+    if slot in {"EXCLUDED", "FAILED", "INACCESSIBLE", "BLOCKED"}:
+        return False
+    if details.get("product_type") == "other" and not _is_duplicate_obs(row):
+        return False
+    if details.get("is_eligible") is False and not _is_duplicate_obs(row):
+        return False
+    return True
+
+
 def _load_search_rows(session: Session, scope: VisibilityScope) -> Sequence[SearchObservation]:
     cfg = load_product_identity_config()
+    source = _source_for(scope)
+    stratified = source == VISIBILITY_SOURCE_STRATIFIED_CATALOG
     stmt = select(SearchObservation)
     if scope.retailer_code is not None:
         stmt = stmt.where(SearchObservation.retailer_code == scope.retailer_code)
@@ -47,6 +101,8 @@ def _load_search_rows(session: Session, scope: VisibilityScope) -> Sequence[Sear
         stmt = stmt.where(SearchObservation.country_code == scope.country_code)
     if scope.keyword is not None:
         stmt = stmt.where(SearchObservation.keyword == scope.keyword)
+    if scope.stratum is not None:
+        stmt = stmt.where(SearchObservation.stratum == scope.stratum)
     if scope.observed_from is not None:
         stmt = stmt.where(SearchObservation.observed_at >= scope.observed_from)
     if scope.observed_to is not None:
@@ -59,9 +115,17 @@ def _load_search_rows(session: Session, scope: VisibilityScope) -> Sequence[Sear
         SearchObservation.position.asc(),
         SearchObservation.id.asc(),
     )
-    rows = session.scalars(stmt).all()
+    rows = list(session.scalars(stmt).all())
+    if stratified:
+        rows = [row for row in rows if is_stratified_catalog_observation(row)]
+    else:
+        rows = [row for row in rows if not is_stratified_catalog_observation(row)]
     if cfg.use_latest_batch_only:
-        rows = _dedupe_latest_search(rows)
+        rows = _dedupe_latest_search(
+            rows,
+            stratified=stratified,
+            include_ineligible=stratified,
+        )
     return rows
 
 
@@ -115,8 +179,19 @@ def list_product_visibility(
 ) -> list[ProductVisibilityRow]:
     """Retailer-scoped product visibility rows (one retailer per call when filtered)."""
     scope = scope or VisibilityScope()
+    source = _source_for(scope)
     rows = _load_search_rows(session, scope)
     sku_map = _sku_to_product_map(session)
+    status_map = _stratum_status_map(
+        rows,
+        SovScope(
+            retailer_code=scope.retailer_code,
+            country_code=scope.country_code,
+            keyword=scope.keyword,
+            stratum=scope.stratum,
+            observation_source=source,
+        ),
+    )
 
     # key = (retailer, country, product_id or sku-fallback)
     buckets: dict[tuple[str, str, str], list[SearchObservation]] = defaultdict(list)
@@ -131,6 +206,10 @@ def list_product_visibility(
     }
 
     for row in rows:
+        if source == VISIBILITY_SOURCE_STRATIFIED_CATALOG and not _counts_toward_visibility_score(
+            row
+        ):
+            continue
         product: Optional[Product] = None
         if row.product_id is not None:
             product = product_by_id.get(int(row.product_id))
@@ -145,7 +224,8 @@ def list_product_visibility(
                 "title": product.title or row.title,
                 "brand": product.brand or row.brand,
                 "oem": product.oem or row.oem,
-                "product_type": product.product_type,
+                "product_type": product.product_type
+                or _details(row).get("product_type"),
                 "canonical_product_id": (
                     crosswalk[product.id].canonical_product_id
                     if product.id in crosswalk
@@ -163,7 +243,7 @@ def list_product_visibility(
                     "title": row.title,
                     "brand": row.brand,
                     "oem": row.oem,
-                    "product_type": None,
+                    "product_type": _details(row).get("product_type"),
                     "canonical_product_id": None,
                 },
             )
@@ -185,6 +265,32 @@ def list_product_visibility(
         top10 = sum(1 for p in positions if p <= 10)
         top20 = sum(1 for p in positions if p <= 20)
         keywords = tuple(sorted({h.keyword for h in hits}))
+        strata = tuple(
+            sorted({_stratum_name(h) for h in hits if _stratum_name(h)})
+        )
+        positions_by_stratum = tuple(
+            sorted(
+                (_stratum_name(h), int(h.position))
+                for h in hits
+                if _stratum_name(h)
+            )
+        )
+        contributing_status = tuple(
+            (name, status_map.get(name, "PARTIAL")) for name in strata
+        )
+        if contributing_status and all(status == "COMPLETE" for _, status in contributing_status):
+            collection_status = "COMPLETE"
+        elif not contributing_status and source != VISIBILITY_SOURCE_STRATIFIED_CATALOG:
+            collection_status = (
+                "COMPLETE"
+                if hits and all(h.collection_status == "COMPLETE" for h in hits)
+                else "PARTIAL"
+            )
+        else:
+            collection_status = "PARTIAL"
+        budgets = tuple(
+            (name, _stratum_budget(key[0], name)) for name in strata
+        )
         info = meta[key]
         results.append(
             ProductVisibilityRow(
@@ -212,6 +318,12 @@ def list_product_visibility(
                     top20=top20,
                     positions=positions,
                 ),
+                observation_source=source,
+                strata=strata,
+                positions_by_stratum=positions_by_stratum,
+                collection_status=collection_status,
+                stratum_status=contributing_status,
+                requested_budgets=budgets,
             )
         )
 
