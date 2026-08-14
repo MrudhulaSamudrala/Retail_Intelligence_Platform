@@ -21,6 +21,35 @@ It collects product, pricing, visibility, compliance, badge, banner, and search 
 
 ---
 
+## Architecture
+
+```text
+                    BRIDGEAI
+                       │
+             ┌─────────┴─────────┐
+             │                   │
+        Data Collection       Configuration
+             │
+     ┌───────┼────────┬──────────────┐
+     ↓       ↓        ↓              ↓
+  Newegg    Mercado   Audits       Banners
+            Libre
+     │       │        │              │
+     └───────┼────────┴──────────────┘
+             ↓
+        PostgreSQL
+             │
+             ↓
+        Analytics Layer
+             │
+     ┌───────┼──────────┐
+     ↓       ↓          ↓
+ Dashboard  Reports   Historical Data
+ Streamlit  Excel/PSV
+```
+
+---
+
 ## Data Collection
 
 BridgeAI uses retailer-specific, browser-based collectors to observe supported retailer websites.
@@ -35,22 +64,29 @@ A full production run (`python -m collector.run --all`) covers:
 6. Search visibility for configured keywords
 7. Persistence of observations and collection metadata in PostgreSQL
 
-All components in a full production run share a single **collection run** for traceability.
+### Collection Flow
+
+A production collection runs the complete pipeline:
 
 ```text
-Retailer Websites
-      ↓
-Browser-based Collection
-      ↓
-Product / Pricing / Audit / Badge /
-Banner / Search Observations
-      ↓
+Newegg + Mercado Libre
+        ↓
+Product collection
+        ↓
+Audits + Badges + Pricing
+        ↓
+Banners + Search Visibility
+        ↓
 PostgreSQL
-      ↓
+        ↓
 Analytics
-      ↓
-Dashboard + Excel / PSV Reports
+        ↓
+Streamlit Dashboard
+        ↓
+Excel + PSV Reports
 ```
+
+All components in a full production run are associated with a single **collection run** for traceability.
 
 ---
 
@@ -76,19 +112,23 @@ The dashboard distinguishes **Unavailable ≠ Zero** and **Partial ≠ Complete*
 
 ## Brand Compliance
 
-Compliance uses **7 checks**:
+Brand Compliance measures how clearly **Intel, AMD, Qualcomm, and Apple** are presented on retailer listing and product pages — titles, badges, spec tables, and rich media.
 
-| Check | Meaning |
+Each audited product is evaluated with **7 checks**. A check is **PASS**, **FAIL**, or **UNKNOWN** (evidence could not be determined). UNKNOWN is excluded from pass rates. If a brand has no scored evidence, the dashboard shows **N/A**, not 0%.
+
+| Check | What is evaluated |
 | --- | --- |
-| S1 | Listing title |
-| S2 | Listing badge |
-| P1 | Product title |
-| P2 | Product badge |
-| P3 | Spec table |
-| P4 | Brand media |
-| P5 | OEM media |
+| S1 | Listing title includes the brand name and/or processor line |
+| S2 | Brand badge is present on the listing tile |
+| P1 | Product page title includes brand, processor line, or generation |
+| P2 | Brand badge is present on the product page |
+| P3 | Brand or processor line appears in the specification table |
+| P4 | Brand-led rich media is present on the product page |
+| P5 | OEM rich media is present on the product page |
 
-Results are shown brand-wise for **Intel · AMD · Qualcomm · Apple**, with PASS, FAIL, coverage, and unavailable evidence kept separate. UNKNOWN is never treated as PASS or FAIL. N/A is not 0%.
+Scored checks (PASS/FAIL) are weighted **equally**. The overall score uses the existing segment weights: **notebook 85%** and **desktop 15%**. Coverage is reported separately as scored observations / eligible observations.
+
+The dashboard shows an overall summary, one card per brand (pass rate, PASS/FAIL counts, coverage), a check-by-check comparison, and the lowest-scoring checks where compliance is being lost.
 
 ---
 
