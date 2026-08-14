@@ -14,6 +14,8 @@ class BannerShareScope:
     country_code: Optional[str] = None
     observed_from: Optional[datetime] = None
     observed_to: Optional[datetime] = None
+    collection_run_ids: Optional[tuple[int, ...]] = None
+    """When set, banner_observations are limited to these collection_run_id values."""
 
 
 @dataclass(frozen=True)

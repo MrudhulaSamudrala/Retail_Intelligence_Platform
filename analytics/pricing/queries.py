@@ -111,11 +111,15 @@ def _scope_price_filters(scope: PricingScope | None) -> list[Any]:
         filters.append(PriceHistory.observed_at >= scope.observed_from)
     if scope.observed_to is not None:
         filters.append(PriceHistory.observed_at <= scope.observed_to)
+    if scope.collection_run_ids:
+        filters.append(PriceHistory.collection_run_id.in_(list(scope.collection_run_ids)))
     return filters
 
 
 def _apply_current_universe(scope: PricingScope | None, *, latest_only: bool) -> bool:
     scope = scope or PricingScope()
+    if scope.collection_run_ids:
+        return False
     return bool(latest_only and scope.current_universe)
 
 
@@ -243,7 +247,9 @@ def list_price_observations(
         ]
 
     product_ids = {product.id for _, product in rows}
-    promo_by_product = _latest_promo_texts(session, product_ids)
+    promo_by_product = _latest_promo_texts(
+        session, product_ids, collection_run_ids=scope.collection_run_ids
+    )
 
     out: list[PriceObservation] = []
     for price, product in rows:
@@ -287,6 +293,8 @@ def list_snapshot_pricing_rows(
         filters.append(ProductSnapshot.observed_at >= scope.observed_from)
     if scope.observed_to is not None:
         filters.append(ProductSnapshot.observed_at <= scope.observed_to)
+    if scope.collection_run_ids:
+        filters.append(ProductSnapshot.collection_run_id.in_(list(scope.collection_run_ids)))
 
     stmt = (
         select(ProductSnapshot, Product)
@@ -350,11 +358,14 @@ def list_snapshot_pricing_rows(
 
 
 def _latest_promo_texts(
-    session: Session, product_ids: set[int]
+    session: Session,
+    product_ids: set[int],
+    *,
+    collection_run_ids: Sequence[int] | None = None,
 ) -> dict[int, Optional[str]]:
     if not product_ids:
         return {}
-    ranked = (
+    stmt = (
         select(
             Promotion.product_id,
             Promotion.promo_text,
@@ -367,7 +378,10 @@ def _latest_promo_texts(
         )
         .where(Promotion.product_id.in_(product_ids))
         .where(Promotion.promo_text.is_not(None))
-    ).subquery("ranked_promos")
+    )
+    if collection_run_ids:
+        stmt = stmt.where(Promotion.collection_run_id.in_(list(collection_run_ids)))
+    ranked = stmt.subquery("ranked_promos")
     rows = session.execute(
         select(ranked.c.product_id, ranked.c.promo_text).where(ranked.c.rn == 1)
     ).all()

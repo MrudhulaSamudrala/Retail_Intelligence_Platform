@@ -202,11 +202,25 @@ def _load_candidates_from_current_batch(
     session: Session, scope: SosScope
 ) -> tuple[list[dict[str, Any]], int, dict[tuple[str, str], CollectionRun]]:
     """Products observed in the latest stratified collection; no historical padding."""
-    runs = _latest_stratified_runs(session, scope)
-    if not runs:
-        return [], 0, {}
-
-    run_ids = [run.id for run in runs.values()]
+    if scope.collection_run_ids:
+        scoped_runs = list(
+            session.scalars(
+                select(CollectionRun).where(
+                    CollectionRun.id.in_(list(scope.collection_run_ids))
+                )
+            ).all()
+        )
+        runs: dict[tuple[str, str], CollectionRun] = {}
+        for run in scoped_runs:
+            runs[(run.retailer_code, run.country_code)] = run
+        run_ids = list(scope.collection_run_ids)
+        if not run_ids:
+            return [], 0, {}
+    else:
+        runs = _latest_stratified_runs(session, scope)
+        if not runs:
+            return [], 0, {}
+        run_ids = [run.id for run in runs.values()]
     seen: set[tuple[str, str, str]] = set()
     candidates: list[dict[str, Any]] = []
 

@@ -2,6 +2,7 @@
 
 Does not collect products, does not update observation rows, and does not
 invent metric values. Collection status is owned by the orchestrator.
+Report generation is read-only.
 """
 
 from __future__ import annotations
@@ -10,15 +11,16 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database.models import CollectionRun, CollectionRunStep
 from reporting.excel import write_excel
-from reporting.paths import ReportPaths, paths_for_run
+from reporting.paths import paths_for_run
 from reporting.psv import write_psv
+from reporting.run_scope import list_production_run_ids, parse_run_id_list
 from reporting.tables import build_report_tables
 
 logger = logging.getLogger("reporting.generate")
@@ -82,7 +84,7 @@ def generate_reports_for_run(
                 "path": str(excel_path),
             },
         )
-        psv_path = write_psv(paths.psv, tables.get("compliance") or [])
+        psv_path = write_psv(paths.psv, tables)
         logger.info(
             "psv_report_generated",
             extra={
@@ -123,14 +125,42 @@ def generate_reports_for_latest(
         .limit(1)
     ).first()
     if run is None:
-        run = session.scalars(
-            select(CollectionRun).order_by(CollectionRun.started_at.desc()).limit(1)
-        ).first()
-    if run is None:
         return ReportGenerationResult(
-            run_id=0, status="FAILED", error_message="no_collection_runs"
+            run_id=0, status="FAILED", error_message="no_production_collection_runs"
         )
     return generate_reports_for_run(session, run.id, reports_root=reports_root)
+
+
+def generate_reports_for_runs(
+    session: Session,
+    run_ids: Sequence[int],
+    *,
+    reports_root: Path | None = None,
+) -> list[ReportGenerationResult]:
+    return [
+        generate_reports_for_run(session, run_id, reports_root=reports_root)
+        for run_id in run_ids
+    ]
+
+
+def generate_historical_production_reports(
+    session: Session, *, reports_root: Path | None = None
+) -> list[ReportGenerationResult]:
+    return generate_reports_for_runs(
+        session, list_production_run_ids(session), reports_root=reports_root
+    )
+
+
+def _print_result(result: ReportGenerationResult) -> None:
+    print(
+        {
+            "status": result.status,
+            "run_id": result.run_id,
+            "excel": str(result.excel_path) if result.excel_path else None,
+            "psv": str(result.psv_path) if result.psv_path else None,
+            "error": result.error_message,
+        }
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -143,25 +173,53 @@ def main(argv: list[str] | None = None) -> int:
     load_dotenv()
     parser = argparse.ArgumentParser(description="Generate BridgeAI reports from existing DB data")
     parser.add_argument("--run-id", type=int, default=None)
+    parser.add_argument(
+        "--runs",
+        type=str,
+        default=None,
+        help="Comma-separated collection_run_id list, e.g. 8,18",
+    )
+    parser.add_argument(
+        "--historical",
+        action="store_true",
+        help="Generate reports for every production collection_run (not child component runs).",
+    )
     parser.add_argument("--latest", action="store_true")
     args = parser.parse_args(argv)
     engine = get_engine()
     session = get_session_factory(engine)()
     try:
-        if args.run_id is not None:
-            result = generate_reports_for_run(session, args.run_id)
+        results: list[ReportGenerationResult]
+        if args.historical:
+            results = generate_historical_production_reports(session)
+            if not results:
+                results = [
+                    ReportGenerationResult(
+                        run_id=0,
+                        status="FAILED",
+                        error_message="no_production_collection_runs",
+                    )
+                ]
         else:
-            result = generate_reports_for_latest(session)
-        print(
-            {
-                "status": result.status,
-                "run_id": result.run_id,
-                "excel": str(result.excel_path) if result.excel_path else None,
-                "psv": str(result.psv_path) if result.psv_path else None,
-                "error": result.error_message,
-            }
-        )
-        return 0 if result.ok else 1
+            run_ids: list[int] = []
+            if args.run_id is not None:
+                run_ids.append(args.run_id)
+            if args.runs:
+                run_ids.extend(parse_run_id_list(args.runs))
+            # Preserve order, drop duplicates.
+            unique: list[int] = []
+            seen: set[int] = set()
+            for rid in run_ids:
+                if rid not in seen:
+                    seen.add(rid)
+                    unique.append(rid)
+            if unique:
+                results = generate_reports_for_runs(session, unique)
+            else:
+                results = [generate_reports_for_latest(session)]
+        for result in results:
+            _print_result(result)
+        return 0 if results and all(item.ok for item in results) else 1
     finally:
         session.close()
         engine.dispose()

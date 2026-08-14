@@ -27,6 +27,8 @@ class SovScope:
     observation_source: str = SOV_SOURCE_STRATIFIED_CATALOG
     """``stratified_catalog`` (default) or ``keyword_search`` (historical). Never mixed."""
     stratum: Optional[str] = None
+    collection_run_ids: Optional[tuple[int, ...]] = None
+    """When set, SoV loads search_observations for these run IDs only."""
 
 
 @dataclass(frozen=True)

@@ -7,12 +7,16 @@ from pathlib import Path
 import streamlit as st
 
 from dashboard.components.layout import section_header
-from dashboard.queries.reports import DiscoveredReport, discover_reports, latest_report
+from dashboard.db import read_session
+from dashboard.queries.reports import (
+    DiscoveredReport,
+    attach_run_metadata,
+    discover_reports,
+)
 
 
 def _download_button(path: Path | None, *, label: str, key: str) -> None:
     if path is None or not path.is_file():
-        st.caption(f"{label} unavailable")
         return
     mime = (
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -28,41 +32,58 @@ def _download_button(path: Path | None, *, label: str, key: str) -> None:
     )
 
 
-def _render_item(report: DiscoveredReport, *, prefix: str, excel_label: str, psv_label: str) -> None:
+def _heading(report: DiscoveredReport) -> None:
     st.markdown(f"**Run {report.run_id}**")
-    st.caption(report.display_date)
+    bits = [report.datetime_label()]
+    status = report.status_label()
+    if status:
+        bits.append(status)
+    st.caption(" · ".join(bits))
+    scope = report.scope_label()
+    if scope:
+        st.caption(scope)
+
+
+def _render_downloads(
+    report: DiscoveredReport, *, prefix: str, excel_label: str, psv_label: str
+) -> None:
     c1, c2 = st.columns(2)
     with c1:
-        _download_button(report.excel_path, label=excel_label, key=f"{prefix}-xlsx-{report.run_id}-{report.date}")
+        if report.has_excel:
+            _download_button(
+                report.excel_path,
+                label=excel_label,
+                key=f"{prefix}-xlsx-{report.run_id}-{report.date}",
+            )
     with c2:
-        _download_button(report.psv_path, label=psv_label, key=f"{prefix}-psv-{report.run_id}-{report.date}")
+        if report.has_psv:
+            _download_button(
+                report.psv_path,
+                label=psv_label,
+                key=f"{prefix}-psv-{report.run_id}-{report.date}",
+            )
 
 
 def render() -> None:
     section_header("Reports", "Download collection reports and historical exports.")
     reports = discover_reports()
+    if reports:
+        try:
+            with read_session() as session:
+                reports = attach_run_metadata(session, reports)
+        except Exception:  # noqa: BLE001 — file library still works without metadata
+            pass
     if not reports:
         st.caption("No generated reports found. Reports are created after a production collection.")
         return
-    latest = latest_report()
-    previous = reports[1:] if latest else reports
-    if latest:
-        st.markdown("**Latest report**")
-        st.caption(f"{latest.display_date} · Run {latest.run_id}")
-        c1, c2 = st.columns(2)
-        with c1:
-            _download_button(
-                latest.excel_path,
-                label="Download Excel",
-                key=f"latest-xlsx-{latest.run_id}-{latest.date}",
-            )
-        with c2:
-            _download_button(
-                latest.psv_path,
-                label="Download PSV",
-                key=f"latest-psv-{latest.run_id}-{latest.date}",
-            )
+    latest, *previous = reports
+    st.markdown("**LATEST REPORT**")
+    _heading(latest)
+    _render_downloads(
+        latest, prefix="latest", excel_label="Download Excel", psv_label="Download PSV"
+    )
     if previous:
-        st.markdown("**Previous Reports**")
+        st.markdown("**PREVIOUS REPORTS**")
         for report in previous:
-            _render_item(report, prefix="prev", excel_label="Excel", psv_label="PSV")
+            _heading(report)
+            _render_downloads(report, prefix="prev", excel_label="Excel", psv_label="PSV")

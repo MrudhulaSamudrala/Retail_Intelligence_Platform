@@ -50,6 +50,10 @@ def load_banner_observations(
         stmt = stmt.where(BannerObservation.observed_at >= scope.observed_from)
     if scope.observed_to is not None:
         stmt = stmt.where(BannerObservation.observed_at <= scope.observed_to)
+    if scope.collection_run_ids:
+        stmt = stmt.where(
+            BannerObservation.collection_run_id.in_(list(scope.collection_run_ids))
+        )
     stmt = stmt.order_by(BannerObservation.observed_at.asc(), BannerObservation.id.asc())
     return session.scalars(stmt).all()
 

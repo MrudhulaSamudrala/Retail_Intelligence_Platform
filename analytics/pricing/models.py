@@ -19,6 +19,8 @@ class PricingScope:
     currency: Optional[str] = None
     observed_from: Optional[datetime] = None
     observed_to: Optional[datetime] = None
+    collection_run_ids: Optional[tuple[int, ...]] = None
+    """When set, prices/promotions are limited to these collection_run_id values."""
     current_universe: bool = True
     """When True (default), cross-sectional KPIs use eligible products from the
     latest catalog/pricing collection batch per retailer/country. Time series

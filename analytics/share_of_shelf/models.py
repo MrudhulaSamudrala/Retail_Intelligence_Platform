@@ -19,6 +19,8 @@ class SosScope:
     brand: Optional[str] = None
     as_of: Optional[datetime] = None
     """Used only when ``current_universe`` is False (explicit historical SoS)."""
+    collection_run_ids: Optional[tuple[int, ...]] = None
+    """When set, SoS uses snapshots/search rows for these run IDs only."""
     current_universe: bool = True
     """If True, candidates come from the latest stratified collection batch
     per retailer/country. Historical products and keyword searches are omitted."""

@@ -125,13 +125,36 @@ def load_audit_rows(
     session: Session,
     *,
     current_universe: bool = True,
+    collection_run_ids: Sequence[int] | None = None,
 ) -> list[AuditScoreRow]:
     """Map ``retailer_audits`` into scoring inputs.
 
-    When ``current_universe`` is True (default), keep the latest row per
-    ``(product_id, check_code)`` for eligible products in the latest audit
-    collection_run per retailer/country. Historical rows are not deleted.
+    When ``collection_run_ids`` is set, only those runs are scored (latest row
+    per product/check within that set). When ``current_universe`` is True and
+    run IDs are omitted, keep the latest row per ``(product_id, check_code)``
+    for eligible products in the latest audit collection_run per
+    retailer/country. Historical rows are not deleted.
     """
+    if collection_run_ids:
+        run_ids = [int(rid) for rid in collection_run_ids]
+        if not run_ids:
+            return []
+        latest_ids = _latest_audit_ids_stmt(run_ids=run_ids)
+        stmt = (
+            select(RetailerAudit, Product)
+            .join(Product, Product.id == RetailerAudit.product_id)
+            .where(RetailerAudit.id.in_(latest_ids))
+            .where(RetailerAudit.collection_run_id.in_(run_ids))
+        )
+        out: list[AuditScoreRow] = []
+        for audit, product in session.execute(stmt).all():
+            if not _product_is_compliance_eligible(product):
+                continue
+            if not _include_current_audit(audit):
+                continue
+            out.append(_to_score_row(audit, product_type=product.product_type))
+        return out
+
     if not current_universe:
         audits = session.scalars(
             select(RetailerAudit).order_by(RetailerAudit.observed_at.asc())

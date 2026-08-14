@@ -138,6 +138,10 @@ def _load_rows(session: Session, scope: SovScope) -> Sequence[SearchObservation]
         stmt = stmt.where(SearchObservation.observed_at >= scope.observed_from)
     if scope.observed_to is not None:
         stmt = stmt.where(SearchObservation.observed_at <= scope.observed_to)
+    if scope.collection_run_ids:
+        stmt = stmt.where(
+            SearchObservation.collection_run_id.in_(list(scope.collection_run_ids))
+        )
     # Keyword-search completeness can be filtered in SQL. Stratified completeness
     # is evaluated per configured budget / fallback after load.
     if scope.require_complete and not stratified:
