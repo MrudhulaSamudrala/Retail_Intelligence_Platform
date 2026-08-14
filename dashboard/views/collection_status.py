@@ -11,7 +11,8 @@ import streamlit as st
 from dashboard.queries.collection import CollectionStatusSnapshot, ComponentStatus
 
 _DISPLAY = (
-    ("products", "Products"),
+    ("newegg", "Newegg"),
+    ("mercadolibre", "Mercado Libre"),
     ("audits", "Audits"),
     ("badges", "Badges"),
     ("pricing", "Pricing"),

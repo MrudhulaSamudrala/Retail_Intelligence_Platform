@@ -8,14 +8,20 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from collector.orchestration.config import STATUS_SUCCESS, OrchestrationConfig
 from collector.orchestration.runner import ProductionRunner
 from collector.orchestration.steps import StepResult
-from dashboard.queries.reports import attach_run_metadata, discover_reports, latest_report
+from dashboard.queries.reports import (
+    attach_run_metadata,
+    discover_reports,
+    latest_report,
+    metrics_from_steps,
+    split_latest_and_previous,
+)
 from dashboard.views.collection_status import _component_status, _normalize
 from database.models import (
     Base,
@@ -193,6 +199,8 @@ def test_collection_status_does_not_invent_success() -> None:
     }
     assert _component_status("banners", by) == "NOT AVAILABLE"
     assert _component_status("audits", by) == "SUCCESS"
+    assert _component_status("newegg", by) == "PARTIAL"
+    assert _component_status("mercadolibre", by) == "SUCCESS"
     assert _component_status("products", by) == "PARTIAL"
 
 
@@ -267,16 +275,37 @@ def test_report_failure_does_not_fail_collection(session: Session) -> None:
 def test_scheduler_scripts_use_venv_python() -> None:
     launcher = Path("scripts/run_scheduled_collection.ps1").read_text(encoding="utf-8")
     setup = Path("scripts/setup_windows_scheduler.ps1").read_text(encoding="utf-8")
+    schedule = Path("config/schedule.yaml").read_text(encoding="utf-8")
+    docs = Path("docs/windows_scheduler.md").read_text(encoding="utf-8")
     assert ".venv\\Scripts\\python.exe" in launcher
     assert "collector.run" in launcher
     assert "--all" in launcher
+    assert "--dry-run" in launcher
     assert "streamlit run" not in launcher.lower()
-    assert "BridgeAI - Production Collection" in setup or "task_name" in setup
+    assert "WakeToRun" in setup
+    assert "IgnoreNew" in setup
     assert "run_scheduled_collection.ps1" in setup
+    assert "load_collection_schedule" in setup
+    assert "config/schedule.yaml" in setup
     assert "streamlit run" not in setup.lower()
-    assert "config/schedule.yaml" in Path("docs/windows_scheduler.md").read_text(
-        encoding="utf-8"
+    assert "hours: [8, 14, 20]" in schedule
+    assert 'task_name: "BridgeAI - Production Collection"' in schedule
+    assert "config/schedule.yaml" in docs
+    assert "08:00" in docs and "14:00" in docs and "20:00" in docs
+    from collector.orchestration.config import COMPONENTS
+    from collector.run import resolve_orchestration_filters, parse_args
+
+    assert COMPONENTS == (
+        "newegg",
+        "mercadolibre",
+        "audits",
+        "badges",
+        "pricing",
+        "banners",
+        "search",
     )
+    retailers, steps = resolve_orchestration_filters(parse_args(["--all"]))
+    assert retailers is None and steps is None
 
 
 def _production_run(session: Session, *, started_at: datetime) -> CollectionRun:
@@ -506,4 +535,107 @@ def test_attach_run_metadata_keeps_partial(session: Session, tmp_path: Path) -> 
     found = attach_run_metadata(session, discover_reports(root=tmp_path))
     assert found[0].status_label() == "PARTIAL"
     assert found[0].run_id == run.id
+
+
+def test_one_card_per_run_id_even_with_two_dates(tmp_path: Path) -> None:
+    older = tmp_path / "2026-08-13"
+    newer = tmp_path / "2026-08-14"
+    older.mkdir()
+    newer.mkdir()
+    (older / "BridgeAI_Report_Run_21_2026-08-13.xlsx").write_bytes(b"old")
+    (newer / "BridgeAI_Report_Run_21_2026-08-14.xlsx").write_bytes(b"new")
+    (newer / "BridgeAI_Report_Run_21_2026-08-14.psv").write_text("brand|overall\n", encoding="utf-8")
+    found = discover_reports(root=tmp_path)
+    assert [item.run_id for item in found] == [21]
+    assert found[0].has_excel and found[0].has_psv
+    latest, previous = split_latest_and_previous(found)
+    assert latest is not None and latest.run_id == 21
+    assert previous == []
+
+
+def test_missing_format_does_not_duplicate_run(tmp_path: Path) -> None:
+    day = tmp_path / "2026-08-14"
+    day.mkdir()
+    (day / "BridgeAI_Report_Run_8_2026-08-14.xlsx").write_bytes(b"xlsx")
+    (day / "BridgeAI_Report_Run_18_2026-08-14.psv").write_text("psv\n", encoding="utf-8")
+    found = discover_reports(root=tmp_path)
+    assert [item.run_id for item in found] == [18, 8]
+    latest, previous = split_latest_and_previous(found)
+    assert latest is not None and latest.run_id == 18
+    assert [item.run_id for item in previous] == [8]
+    assert latest.has_psv and not latest.has_excel
+    assert previous[0].has_excel and not previous[0].has_psv
+
+
+def test_empty_reports_library(tmp_path: Path) -> None:
+    assert discover_reports(root=tmp_path) == []
+    latest, previous = split_latest_and_previous([])
+    assert latest is None and previous == []
+
+
+def test_metrics_from_steps_omit_skipped(session: Session) -> None:
+    run = _production_run(session, started_at=datetime(2026, 8, 14, 18, 41, tzinfo=timezone.utc))
+    session.add_all(
+        [
+            CollectionRunStep(
+                collection_run_id=run.id,
+                component="newegg",
+                status="SUCCESS",
+                records_processed=100,
+            ),
+            CollectionRunStep(
+                collection_run_id=run.id,
+                component="mercadolibre",
+                status="PARTIAL",
+                records_processed=100,
+            ),
+            CollectionRunStep(
+                collection_run_id=run.id,
+                component="audits",
+                status="SUCCESS",
+                records_processed=847,
+            ),
+            CollectionRunStep(
+                collection_run_id=run.id,
+                component="banners",
+                status="SKIPPED",
+                records_processed=0,
+            ),
+        ]
+    )
+    session.commit()
+    steps = list(session.scalars(select(CollectionRunStep)).all())
+    metrics = dict(metrics_from_steps(steps))
+    assert metrics["Products"] == 200
+    assert metrics["Audits"] == 847
+    assert "Banners" not in metrics
+
+
+def test_reports_view_pairs_excel_psv_on_one_card() -> None:
+    from dashboard.queries.reports import DiscoveredReport
+    from dashboard.views.reports import _latest_html, _previous_html
+
+    src = Path("dashboard/views/reports.py").read_text(encoding="utf-8")
+    assert "generate_reports" not in src
+    assert "Download Excel" in src and "Download PSV" in src
+    assert "No reports available yet" in src
+    report = DiscoveredReport(
+        run_id=21,
+        date="2026-08-14",
+        excel_path=None,
+        psv_path=None,
+        timestamp=datetime(2026, 8, 14, 18, 41, tzinfo=timezone.utc),
+        display_date="14 Aug 2026",
+        run_type="production",
+        status="PARTIAL",
+        retailers=("Newegg", "Mercado Libre"),
+        metrics=(("Products", 200), ("Audits", 847)),
+    )
+    latest = _latest_html(report)
+    previous = _previous_html(report)
+    assert latest.count("Run 21") == 1
+    assert previous.count("Run 21") == 1
+    assert "PARTIAL" in latest and "PARTIAL" in previous
+    assert "200" in latest and "Products" in latest
+    assert "Audits" not in previous
 

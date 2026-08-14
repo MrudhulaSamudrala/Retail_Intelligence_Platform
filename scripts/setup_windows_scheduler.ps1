@@ -2,7 +2,7 @@
 # Times are read from config/schedule.yaml via the project Python.
 #
 # Usage (from repo root, PowerShell):
-#   powershell -ExecutionPolicy Bypass -File scripts\setup_windows_scheduler.ps1
+#   powershell -ExecutionPolicy Bypass -File .\scripts\setup_windows_scheduler.ps1
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
@@ -42,9 +42,13 @@ $Settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
+    -WakeToRun `
     -MultipleInstances IgnoreNew `
     -ExecutionTimeLimit (New-TimeSpan -Hours 6) `
     -Hidden
+# Interactive + current user: uses the logged-on Windows session (needed for the
+# existing Chrome/CDP profile). Do not embed passwords in this repo. To run when
+# nobody is logged on, set credentials in Task Scheduler UI — not in git.
 $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 
 Register-ScheduledTask `
