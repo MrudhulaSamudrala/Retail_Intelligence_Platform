@@ -278,7 +278,7 @@ async def process_product_page(
         await page.close()
 
 
-async def run_badge_collection() -> dict[str, Any]:
+async def run_badge_collection(*, collection_run_id: int | None = None) -> dict[str, Any]:
     setup_logging()
     load_dotenv()
     engine = get_engine()
@@ -307,19 +307,22 @@ async def run_badge_collection() -> dict[str, Any]:
         original_ids = {int(p["id"]) for p in products}
         summary["original_product_ids"] = sorted(original_ids)
 
-        run = CollectionRunRepository(db).start(
-            retailer_code="newegg",
-            country_code="US",
-            run_type="badges",
-            run_metadata={
-                "source": "collector.badges.run_existing",
-                "product_count": len(products),
-                "product_ids": sorted(original_ids),
-                "discovery": False,
-            },
-        )
-        db.commit()
-        run_id = run.id
+        if collection_run_id is not None:
+            run_id = collection_run_id
+        else:
+            run = CollectionRunRepository(db).start(
+                retailer_code="newegg",
+                country_code="US",
+                run_type="badges",
+                run_metadata={
+                    "source": "collector.badges.run_existing",
+                    "product_count": len(products),
+                    "product_ids": sorted(original_ids),
+                    "discovery": False,
+                },
+            )
+            db.commit()
+            run_id = run.id
         summary["collection_run_id"] = run_id
         observed_at = datetime.now(timezone.utc)
         persister = CollectionPersister(db)

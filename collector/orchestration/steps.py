@@ -102,7 +102,7 @@ async def run_newegg_products(
 
     collector = build_collector()
     pipeline = CollectionPipeline(session, collector)
-    outcome = await pipeline.run(limit=limit)
+    outcome = await pipeline.run(limit=limit, collection_run_id=parent_run_id)
 
     after = session.scalar(select(func.count()).select_from(Product)) or 0
     after_snaps = session.scalar(select(func.count()).select_from(ProductSnapshot)) or 0
@@ -163,7 +163,7 @@ async def run_mercadolibre_products(
 
     collector = build_collector()
     pipeline = CollectionPipeline(session, collector)
-    outcome = await pipeline.run(limit=limit)
+    outcome = await pipeline.run(limit=limit, collection_run_id=parent_run_id)
 
     after = session.scalar(select(func.count()).select_from(Product)) or 0
     after_snaps = session.scalar(select(func.count()).select_from(ProductSnapshot)) or 0
@@ -235,7 +235,7 @@ async def run_audits_step(
         ("mercadolibre", run_audit_ml),
     ):
         try:
-            summary = await runner()
+            summary = await runner(collection_run_id=parent_run_id)
             summaries.append({label: summary})
             rows += int(summary.get("rows_inserted") or 0)
             audited += int(summary.get("products_audited") or 0)
@@ -287,7 +287,7 @@ async def run_badges_step(
         ("mercadolibre", run_badges_ml),
     ):
         try:
-            summary = await runner()
+            summary = await runner(collection_run_id=parent_run_id)
             details[label] = {
                 k: summary.get(k)
                 for k in (
@@ -379,7 +379,6 @@ async def run_banners_step(
         )
     from collector.banners.collect import collect_homepage_banners
     from collector.banners.persist import persist_banners
-    from database.repositories import CollectionRunRepository
 
     results = await collect_homepage_banners(retailer_codes=retailer_codes)
     total = 0
@@ -389,26 +388,14 @@ async def run_banners_step(
     for result in results:
         if result.inspected:
             success += 1
-            runs = CollectionRunRepository(session)
-            crow = runs.start(
-                retailer_code=result.retailer_code,
-                country_code=result.country_code,
-                run_type="banner",
-                run_metadata={
-                    "parent_run_id": parent_run_id,
-                    "source": "collector.orchestration",
-                },
-            )
-            session.flush()
             rows = persist_banners(
                 session,
                 result.banners,
                 retailer_code=result.retailer_code,
                 country_code=result.country_code,
-                collection_run_id=crow.id,
+                collection_run_id=parent_run_id,
                 observed_at=result.observed_at,
             )
-            runs.complete(crow, status="completed", items_collected=len(rows))
             session.commit()
             total += len(rows)
         else:
@@ -453,7 +440,7 @@ async def run_search_step(
     total = 0
     complete = partial = failed = zero = 0
     for run in results:
-        n = persist_search_run(session, run)
+        n = persist_search_run(session, run, collection_run_id=parent_run_id)
         session.commit()
         total += n
         st = run.collection_status

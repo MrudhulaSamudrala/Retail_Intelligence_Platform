@@ -13,6 +13,7 @@ from typing import Any, Optional
 from sqlalchemy import distinct, func, select
 from sqlalchemy.orm import Session
 
+from collector.orchestration.schedule import next_scheduled_collection
 from dashboard.config import dashboard_meta
 from database.models import CollectionRun, CollectionRunStep, Product, SearchObservation
 
@@ -50,7 +51,7 @@ class CollectionStatusSnapshot:
     is_live: bool = False
     freshness_label: str = "No collection data"
     components: list[ComponentStatus] = field(default_factory=list)
-    next_scheduled_hint: str = "3× daily (08:00 / 14:00 / 20:00 UTC)"
+    next_scheduled_hint: str = "08:00 / 14:00 / 20:00"
     frequency: str = "3 collections per day"
 
 
@@ -94,12 +95,25 @@ def count_tracked_products(session: Session, *, retailer_code: Optional[str] = N
 def load_collection_status(session: Session) -> CollectionStatusSnapshot:
     meta = dashboard_meta()
     stale_hours = float(meta.get("stale_hours", 12))
-    frequency = f"{meta.get('collections_per_day', 3)} collections per day"
-    cron = str(meta.get("schedule_cron", "0 8,14,20 * * *"))
+    nxt = next_scheduled_collection()
+    try:
+        from collector.orchestration.schedule import load_collection_schedule
+
+        cfg = load_collection_schedule()
+        frequency = f"{cfg.collections_per_day} collections per day"
+    except Exception:  # noqa: BLE001
+        frequency = f"{meta.get('collections_per_day', 3)} collections per day"
 
     latest = session.scalars(
-        select(CollectionRun).order_by(CollectionRun.started_at.desc()).limit(1)
+        select(CollectionRun)
+        .where(CollectionRun.run_type == "production")
+        .order_by(CollectionRun.started_at.desc())
+        .limit(1)
     ).first()
+    if latest is None:
+        latest = session.scalars(
+            select(CollectionRun).order_by(CollectionRun.started_at.desc()).limit(1)
+        ).first()
 
     last_ok = session.scalars(
         select(CollectionRun)
@@ -110,7 +124,7 @@ def load_collection_status(session: Session) -> CollectionStatusSnapshot:
 
     snap = CollectionStatusSnapshot(
         frequency=frequency,
-        next_scheduled_hint=f"Cron `{cron}` ({meta.get('schedule_timezone', 'UTC')})",
+        next_scheduled_hint=nxt.display_label,
     )
 
     if latest is None:

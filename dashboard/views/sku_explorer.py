@@ -1,4 +1,4 @@
-"""SKU Explorer section."""
+"""Product Explorer section."""
 
 from __future__ import annotations
 
@@ -10,13 +10,16 @@ import streamlit as st
 from sqlalchemy.orm import Session
 
 from dashboard.components.filters_ui import select_brand, select_retailer, select_stratum
+from dashboard.components.kpi_cards import kpi_card_html
 from dashboard.components.layout import card, section_header
 from dashboard.components.tables import show_dataframe
 from dashboard.filters import DashboardFilters
+from dashboard.insights_text import NO_DATA
 from dashboard.presentation import CHECK_CODES, CHECK_LABELS, retailer_label
 from dashboard.queries.catalog import list_sku_rows, product_detail
 from dashboard.queries.collection import CollectionStatusSnapshot, filter_option_values
 from dashboard.utils.format import fmt_money, fmt_pct
+from dashboard.utils.semantics import MetricValue
 
 
 def render(
@@ -28,8 +31,8 @@ def render(
     del collection, refreshed_at
     with card():
         section_header(
-            "SKU Explorer",
-            "Product-level traceability across catalog, compliance checks, and detected badges.",
+            "Product Explorer",
+            "Search individual products and trace the data behind the dashboard.",
         )
         options = filter_option_values(session)
         c1, c2, c3, c4 = st.columns(4)
@@ -67,6 +70,14 @@ def render(
         if max_price:
             rows = [r for r in rows if r.current_price is not None and float(r.current_price) <= max_price]
 
+        promo_count = sum(1 for r in rows if r.is_on_promotion)
+        summary = [
+            ("Products", MetricValue.from_number(len(rows), display=str(len(rows)))),
+            ("On Promotion", MetricValue.from_number(promo_count, display=str(promo_count))),
+        ]
+        inner = "".join(kpi_card_html(label, metric) for label, metric in summary)
+        st.markdown(f'<div class="ci-price-kpis" style="grid-template-columns:repeat(2,minmax(0,1fr));max-width:28rem">{inner}</div>', unsafe_allow_html=True)
+
         table = pd.DataFrame(
             [
                 {
@@ -85,12 +96,13 @@ def render(
                 for r in rows
             ]
         )
-        show_dataframe(
-            table.drop(columns=["product_id"]) if not table.empty else table,
-            empty_message="No products match these filters.",
-            empty_explanation="Adjust retailer, brand, type, promotion, or search.",
-            height=360,
-        )
+        with st.expander("View products", expanded=False):
+            show_dataframe(
+                table.drop(columns=["product_id"]) if not table.empty else table,
+                empty_message="No products match these filters.",
+                empty_explanation=NO_DATA,
+                height=320,
+            )
         if not rows:
             return
 
@@ -160,4 +172,4 @@ def render(
         if badge_names:
             st.write(", ".join(badge_names[:20]))
         else:
-            st.caption("N/A — no badge evidence for this SKU.")
+            st.caption("N/A — no badge evidence for this product.")

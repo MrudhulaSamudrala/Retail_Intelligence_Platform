@@ -5,7 +5,7 @@ dashboard:
   title: Retail Competitive Intelligence
   collections_per_day: 3
   schedule_cron: "0 8,14,20 * * *"
-  schedule_timezone: UTC
+  schedule_timezone: local
   stale_hours: 12
   cache_ttl_seconds: 60
 

@@ -429,12 +429,21 @@ def test_banner_step_persists_fields_and_collection_run_id(session: Session) -> 
         ),
     ]
 
+    parent = CollectionRunRepository(session).start(
+        retailer_code="multi",
+        country_code="XX",
+        run_type="production",
+        run_metadata={"source": "test_banner_step"},
+    )
+    session.commit()
+    parent_run_id = parent.id
+
     async def _run():
         with patch(
             "collector.banners.collect.collect_homepage_banners",
             new=AsyncMock(return_value=inspections),
         ):
-            return await run_banners_step(session, parent_run_id=8)
+            return await run_banners_step(session, parent_run_id=parent_run_id)
 
     result = asyncio.run(_run())
     assert result.status == "SUCCESS"
@@ -444,9 +453,9 @@ def test_banner_step_persists_fields_and_collection_run_id(session: Session) -> 
     by_retailer = {r.retailer_code: r for r in rows}
     us = by_retailer["newegg"]
     br = by_retailer["mercadolibre"]
-    assert us.collection_run_id is not None
-    assert br.collection_run_id is not None
-    assert us.collection_run_id != br.collection_run_id
+    assert us.collection_run_id == parent_run_id
+    assert br.collection_run_id == parent_run_id
+    assert us.collection_run_id == br.collection_run_id
     assert us.brand_detected == "Intel"
     assert us.link_present is True
     assert us.destination_url == "https://www.newegg.com/intel"

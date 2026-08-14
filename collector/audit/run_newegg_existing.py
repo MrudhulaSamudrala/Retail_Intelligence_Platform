@@ -287,7 +287,7 @@ def load_products(session) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-async def run_audit() -> dict[str, Any]:
+async def run_audit(*, collection_run_id: int | None = None) -> dict[str, Any]:
     setup_logging()
     load_dotenv()
     engine = get_engine()
@@ -309,18 +309,21 @@ async def run_audit() -> dict[str, Any]:
             summary["errors"].append("no_newegg_products_found")
             return summary
 
-        run = CollectionRunRepository(db).start(
-            retailer_code="newegg",
-            country_code="US",
-            run_type="audit",
-            run_metadata={
-                "source": "collector.audit.run_newegg_existing",
-                "product_count": len(products),
-                "listing_url": LISTING_URL,
-            },
-        )
-        db.commit()
-        run_id = run.id
+        if collection_run_id is not None:
+            run_id = collection_run_id
+        else:
+            run = CollectionRunRepository(db).start(
+                retailer_code="newegg",
+                country_code="US",
+                run_type="audit",
+                run_metadata={
+                    "source": "collector.audit.run_newegg_existing",
+                    "product_count": len(products),
+                    "listing_url": LISTING_URL,
+                },
+            )
+            db.commit()
+            run_id = run.id
         observed_at = datetime.now(timezone.utc)
 
         async with BrowserSession() as browser:

@@ -30,6 +30,7 @@ from collector.orchestration.schedule import (
     is_scheduled_hour,
     load_collection_schedule,
     run_scheduled_tick,
+    schedule_zoneinfo,
 )
 from collector.orchestration.steps import StepResult, product_collection_step_status
 from collector.universe_config import STRATUM_BUDGETS, search_universe_size
@@ -117,25 +118,36 @@ def _patch_pipeline(**overrides):
 
 
 def test_three_daily_slots_and_timezone() -> None:
+    from collector.orchestration.schedule import invalidate_schedule_cache, next_scheduled_collection
+
+    invalidate_schedule_cache()
     cfg = load_collection_schedule()
-    assert cfg.timezone_name == "UTC"
+    assert cfg.timezone_name.lower() == "local"
     assert cfg.hours == (8, 14, 20)
+    assert cfg.minute == 0
     assert cfg.collections_per_day == 3
-    assert cfg.cron == "0 8,14,20 * * *"
-    day = datetime(2026, 8, 14, tzinfo=ZoneInfo("UTC"))
+    assert cfg.task_name == "BridgeAI - Production Collection"
+    tz = schedule_zoneinfo(cfg)
+    day = datetime(2026, 8, 14, tzinfo=tz)
     times = daily_run_times(on_date=day, schedule=cfg)
     assert [t.hour for t in times] == [8, 14, 20]
-    assert all(t.tzinfo == ZoneInfo("UTC") for t in times)
-    assert is_scheduled_hour(datetime(2026, 8, 14, 8, 0, tzinfo=ZoneInfo("UTC")), schedule=cfg)
-    assert is_scheduled_hour(datetime(2026, 8, 14, 14, 0, tzinfo=ZoneInfo("UTC")), schedule=cfg)
-    assert is_scheduled_hour(datetime(2026, 8, 14, 20, 0, tzinfo=ZoneInfo("UTC")), schedule=cfg)
+    assert is_scheduled_hour(datetime(2026, 8, 14, 8, 0, tzinfo=tz), schedule=cfg)
+    assert is_scheduled_hour(datetime(2026, 8, 14, 14, 0, tzinfo=tz), schedule=cfg)
+    assert is_scheduled_hour(datetime(2026, 8, 14, 20, 0, tzinfo=tz), schedule=cfg)
     assert not is_scheduled_hour(
-        datetime(2026, 8, 14, 8, 1, tzinfo=ZoneInfo("UTC")), schedule=cfg
+        datetime(2026, 8, 14, 8, 1, tzinfo=tz), schedule=cfg
     )
-    # 08:00 UTC expressed in Asia/Kolkata must still match the project TZ hours.
-    assert is_scheduled_hour(
-        datetime(2026, 8, 14, 13, 30, tzinfo=ZoneInfo("Asia/Kolkata")), schedule=cfg
+    nxt = next_scheduled_collection(
+        datetime(2026, 8, 14, 16, 0, tzinfo=tz), schedule=cfg
     )
+    assert nxt.is_tomorrow is False
+    assert nxt.clock_label == "20:00"
+    later = next_scheduled_collection(
+        datetime(2026, 8, 14, 21, 0, tzinfo=tz), schedule=cfg
+    )
+    assert later.is_tomorrow is True
+    assert later.clock_label == "08:00"
+    assert "Tomorrow" in later.display_label
 
 
 def test_production_entry_point_and_both_retailers() -> None:

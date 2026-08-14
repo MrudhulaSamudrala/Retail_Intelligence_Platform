@@ -7,7 +7,7 @@ from typing import Optional
 
 import streamlit as st
 
-from dashboard.components.layout import pill_kind_for_status, status_pill
+from dashboard.components.layout import status_pill
 from dashboard.filters import DashboardFilters
 from dashboard.queries.collection import CollectionStatusSnapshot
 from dashboard.utils.format import fmt_ts
@@ -28,6 +28,7 @@ def render_header(
     filters: DashboardFilters,
     analytics_refreshed_at: Optional[datetime],
 ) -> DashboardFilters:
+    del analytics_refreshed_at
     if collection.latest_status in {"FAILED", "ERROR"}:
         badge_kind, badge_text = "bad", "Collection failed"
     elif collection.is_stale:
@@ -37,11 +38,11 @@ def render_header(
     else:
         badge_kind, badge_text = "muted", "No collection yet"
 
-    left, right = st.columns([3.2, 2.2])
+    left, right = st.columns([1.6, 1], gap="large")
     with left:
         st.markdown(
             """
-            <div class="ci-kicker">BRIDGEAI · Competitive Retail Analytics</div>
+            <div class="ci-kicker">BRIDGEAI</div>
             """,
             unsafe_allow_html=True,
         )
@@ -51,14 +52,13 @@ def render_header(
             f"""
             {status_pill(badge_text, kind=badge_kind)}
             <span class="ci-note" style="display:inline;margin-left:0.6rem;">
-            Latest collection: {fmt_ts(collection.latest_completed_at or collection.latest_started_at)}
-            · Last successful collection: {fmt_ts(collection.last_successful_at)}
+            {fmt_ts(collection.latest_completed_at or collection.latest_started_at)}
             </span>
             """,
             unsafe_allow_html=True,
         )
     with right:
-        c1, c2, c3 = st.columns([1.1, 1.5, 1.1])
+        c1, c2, c3 = st.columns([0.9, 1.6, 1.2])
         with c1:
             if st.button("Refresh", use_container_width=True):
                 st.cache_data.clear()

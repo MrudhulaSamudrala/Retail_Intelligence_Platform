@@ -161,7 +161,7 @@ async def capture_product_evidence(
         await page.close()
 
 
-async def run_audit() -> dict[str, Any]:
+async def run_audit(*, collection_run_id: int | None = None) -> dict[str, Any]:
     setup_logging()
     load_dotenv()
     engine = get_engine()
@@ -184,17 +184,20 @@ async def run_audit() -> dict[str, Any]:
             summary["errors"].append("no_mercadolibre_products_found")
             return summary
 
-        run = CollectionRunRepository(db).start(
-            retailer_code="mercadolibre",
-            country_code="BR",
-            run_type="audit",
-            run_metadata={
-                "source": "collector.audit.run_mercadolibre_existing",
-                "product_count": len(products),
-            },
-        )
-        db.commit()
-        run_id = run.id
+        if collection_run_id is not None:
+            run_id = collection_run_id
+        else:
+            run = CollectionRunRepository(db).start(
+                retailer_code="mercadolibre",
+                country_code="BR",
+                run_type="audit",
+                run_metadata={
+                    "source": "collector.audit.run_mercadolibre_existing",
+                    "product_count": len(products),
+                },
+            )
+            db.commit()
+            run_id = run.id
         observed_at = datetime.now(timezone.utc)
 
         async with BrowserSession() as browser:

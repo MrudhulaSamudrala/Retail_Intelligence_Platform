@@ -21,9 +21,11 @@ from dashboard.views import (
     attributes,
     badges,
     banners,
+    collection_status,
     compliance,
     overview,
     pricing,
+    reports,
     share_of_shelf,
     sku_explorer,
     visibility,
@@ -107,11 +109,13 @@ def main() -> None:
     refreshed_at = st.session_state["analytics_refreshed_at"]
     filters = render_header(
         page_title="Competitive Intelligence",
-        subtitle="Shelf presence, search visibility, pricing, promotions, and brand presentation across tracked retailers.",
+        subtitle="Track shelf presence, search visibility, pricing, promotions, and brand presentation across tracked retailers.",
         collection=collection,
         filters=default_filters(),
         analytics_refreshed_at=refreshed_at,
     )
+
+    collection_status.render(collection)
 
     with read_session() as session:
         overview.render(session, filters, collection, refreshed_at)
@@ -123,6 +127,21 @@ def main() -> None:
         attributes.render(session, filters, collection, refreshed_at)
         badges.render(session, filters, collection, refreshed_at)
         sku_explorer.render(session, filters, collection, refreshed_at)
+
+    reports.render()
+
+    st.markdown(
+        '<p class="ci-footer">Metrics are based on the current collection period and available tracked observations.</p>',
+        unsafe_allow_html=True,
+    )
+    with st.expander("Methodology"):
+        st.caption(
+            "Shelf presence uses the eligible gaming-product universe. "
+            "Search visibility uses observed search appearances among tracked brands. "
+            "Pricing never mixes USD and BRL. "
+            "Compliance rings use seven checks (S1, S2, P1, P2, P3, P4, P5); N/A is not 0%. "
+            "Homepage presence plots only banners with Intel, AMD, Qualcomm, or Apple evidence."
+        )
 
 
 if __name__ == "__main__":

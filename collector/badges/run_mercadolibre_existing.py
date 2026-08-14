@@ -144,7 +144,7 @@ async def process_product_page(
         await page.close()
 
 
-async def run_badge_collection() -> dict[str, Any]:
+async def run_badge_collection(*, collection_run_id: int | None = None) -> dict[str, Any]:
     setup_logging()
     load_dotenv()
     engine = get_engine()
@@ -171,17 +171,20 @@ async def run_badge_collection() -> dict[str, Any]:
             summary["errors"].append("no_mercadolibre_products_found")
             return summary
 
-        run = CollectionRunRepository(db).start(
-            retailer_code="mercadolibre",
-            country_code="BR",
-            run_type="badges",
-            run_metadata={
-                "source": "collector.badges.run_mercadolibre_existing",
-                "product_count": len(products),
-            },
-        )
-        db.commit()
-        run_id = run.id
+        if collection_run_id is not None:
+            run_id = collection_run_id
+        else:
+            run = CollectionRunRepository(db).start(
+                retailer_code="mercadolibre",
+                country_code="BR",
+                run_type="badges",
+                run_metadata={
+                    "source": "collector.badges.run_mercadolibre_existing",
+                    "product_count": len(products),
+                },
+            )
+            db.commit()
+            run_id = run.id
         summary["collection_run_id"] = run_id
         observed_at = datetime.now(timezone.utc)
         persister = CollectionPersister(db)

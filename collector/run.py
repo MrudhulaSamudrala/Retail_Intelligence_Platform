@@ -102,6 +102,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
+def resolve_orchestration_filters(
+    args: argparse.Namespace,
+) -> tuple[Optional[Sequence[str]], Optional[Sequence[str]]]:
+    """Decide retailer/step filters for the production runner.
+
+    ``--all`` always runs the complete pipeline (products, audits, badges,
+    pricing, banners, search). Explicit ``--step`` / ``--retailer`` only apply
+    when ``--all`` is absent.
+    """
+    if args.all:
+        return None, None
+    retailers: Optional[Sequence[str]] = args.retailer
+    steps: Optional[Sequence[str]] = args.step
+    if retailers and not steps:
+        return retailers, list(retailers) + ["audits", "badges", "pricing"]
+    return retailers, steps
+
+
 async def _legacy_product_run(
     retailer: str, limit: int, *, stratum: Optional[str] = None
 ) -> int:
@@ -164,20 +182,17 @@ async def _orchestrated_main(args: argparse.Namespace) -> int:
     session_factory = get_session_factory(engine)
     session = session_factory()
     try:
-        retailers: Optional[Sequence[str]] = args.retailer
-        steps: Optional[Sequence[str]] = args.step
-        # --all with no filters → full pipeline
-        if args.all and not retailers and not steps:
-            retailers = None
-            steps = None
-        elif args.all and (retailers or steps):
-            # --all plus filters still allowed (narrowed full-order run)
-            pass
-        elif not args.all and retailers and not steps:
-            # product retailers only (skip banners/search unless also in --step)
-            steps = list(retailers) + ["audits", "badges", "pricing"]
-        elif not args.all and steps and not retailers:
-            pass
+        retailers, steps = resolve_orchestration_filters(args)
+        if args.all and args.step:
+            import logging
+
+            logging.getLogger("collector.run").warning(
+                "all_ignores_step_filter",
+                extra={
+                    "event": "all_ignores_step_filter",
+                    "steps": list(args.step),
+                },
+            )
 
         result = await run_production(
             session,

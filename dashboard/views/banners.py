@@ -133,12 +133,12 @@ def banner_observation_records(rows: Sequence[Any]) -> list[dict[str, Any]]:
 def _render_banner_kpis(counts: BannerKpiCounts) -> None:
     cards = [
         ("Total Banners", MetricValue.from_number(counts.total, display=str(counts.total))),
-        ("Linked Banners", MetricValue.from_number(counts.linked, display=str(counts.linked))),
+        ("Linked", MetricValue.from_number(counts.linked, display=str(counts.linked))),
         (
-            "Discount Banners",
+            "Discount",
             MetricValue.from_number(counts.discounted, display=str(counts.discounted)),
         ),
-        ("Badge Banners", MetricValue.from_number(counts.badged, display=str(counts.badged))),
+        ("Badge", MetricValue.from_number(counts.badged, display=str(counts.badged))),
         (
             "Unknown / Ambiguous",
             MetricValue.from_number(
@@ -160,8 +160,8 @@ def render(
     del collection, refreshed_at
     with card():
         section_header(
-            "Banner Tracking",
-            "Homepage banner presence by tracked platform brand.",
+            "Homepage Presence",
+            "Which brands are getting homepage exposure?",
         )
         options = filter_option_values(session)
         retailer = select_retailer("banner_retailer", options.get("retailer_code", []))
@@ -204,7 +204,7 @@ def render(
                 category_col="brand",
                 value_col="share_pct",
                 title="Banner Share by Brand",
-                definition=BANNER_SHARE_EXPLANATION,
+                definition="",
                 source="analytics.banner_share.banner_share_by_brand",
                 filters_label=scoped.label_summary(),
                 x_title="Banner share (%)",

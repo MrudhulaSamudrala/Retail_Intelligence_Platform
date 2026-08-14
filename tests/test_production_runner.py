@@ -350,6 +350,36 @@ def test_dry_run_no_inserts(session: Session) -> None:
     assert session.scalar(select(func.count()).select_from(CollectionRun)) == 0
 
 
+def test_cli_all_ignores_partial_step_list() -> None:
+    from collector.run import parse_args, resolve_orchestration_filters
+
+    args = parse_args(
+        [
+            "--all",
+            "--step",
+            "newegg",
+            "--step",
+            "mercadolibre",
+            "--step",
+            "audits",
+            "--step",
+            "badges",
+            "--step",
+            "pricing",
+        ]
+    )
+    retailers, steps = resolve_orchestration_filters(args)
+    assert args.all is True
+    assert steps is None
+    assert retailers is None
+    banners_only = parse_args(["--step", "banners"])
+    _, only_steps = resolve_orchestration_filters(banners_only)
+    assert only_steps == ["banners"]
+    pricing_only = parse_args(["--step", "pricing"])
+    _, pricing_steps = resolve_orchestration_filters(pricing_only)
+    assert pricing_steps == ["pricing"]
+
+
 def test_cli_parse_all() -> None:
     from collector.run import STEP_CHOICES, parse_args
 

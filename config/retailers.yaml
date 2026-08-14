@@ -32,10 +32,10 @@ retailers:
       share_of_voice_per_day: 1
 
 scheduling:
-  # Host cron / Task Scheduler (project timezone UTC). See docs/deployment.md.
-  # Command: python -m collector.run --all --scheduled
-  # Times: 08:00 / 14:00 / 20:00 UTC (three runs per day).
+  # Canonical times live in config/schedule.yaml (08:00 / 14:00 / 20:00 local).
+  # Windows Task Scheduler: scripts/setup_windows_scheduler.ps1
+  # Command: .venv\Scripts\python.exe -m collector.run --all
   pricing_audit_cron: "0 8,14,20 * * *"
   banner_cron: "0 8,14,20 * * *"
   production_cron: "0 8,14,20 * * *"
-  timezone: UTC
+  timezone: local

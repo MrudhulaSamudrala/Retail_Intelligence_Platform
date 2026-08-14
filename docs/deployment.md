@@ -182,20 +182,20 @@ Do not configure production Render credentials from this documentation automatic
 
 ---
 
-## Windows Task Scheduler (manual enablement)
+## Windows Task Scheduler
 
-The repository does **not** install a Windows service or OS task. After code is
-deployed, register three daily triggers (or one task with three triggers) yourself:
+See **`docs/windows_scheduler.md`**. Times are configured in **`config/schedule.yaml`**
+(default 08:00 / 14:00 / 20:00 in the machine local timezone).
 
-| Field | Value |
-|-------|--------|
-| Program | `python` (or full path to the venv interpreter) |
-| Arguments | `-m collector.run --all --scheduled` |
-| Start in | repository root (`BridgeAI`) |
-| Triggers | Daily at **08:00**, **14:00**, and **20:00 UTC** |
-| Alternative | `powershell -File scripts\run_scheduled_collection.ps1` |
+Register:
 
-If the machine clock is not UTC, convert those wall times or set the task to
-use UTC. Project config (`config/retailers.yaml` → `scheduling.timezone`) is **UTC**.
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup_windows_scheduler.ps1
+```
+
+Task name: **BridgeAI - Production Collection**. The launcher is
+`scripts/run_scheduled_collection.ps1`, which runs
+`.venv\Scripts\python.exe -m collector.run --all` from the repository root
+and writes logs under `logs/collections/`. Streamlit is not started.
 
 Overlapping ticks are skipped by the existing advisory lock / RUNNING-run check.

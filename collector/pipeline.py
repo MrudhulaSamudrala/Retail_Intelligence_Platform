@@ -49,17 +49,22 @@ class CollectionPipeline:
         self.collector = collector
         self.persister = CollectionPersister(session)
 
-    async def run(self, *, limit: int = 20) -> CollectionOutcome:
+    async def run(
+        self, *, limit: int = 20, collection_run_id: Optional[int] = None
+    ) -> CollectionOutcome:
         outcome = CollectionOutcome()
         seen_skus: set[str] = set()
-        run = self.persister.start_run(
-            retailer_code=self.collector.code,
-            country_code=self.collector.country_code,
-            run_type="pricing",
-            limit=limit,
-        )
-        self.session.commit()
-        run_id = run.id
+        if collection_run_id is not None:
+            run_id = collection_run_id
+        else:
+            run = self.persister.start_run(
+                retailer_code=self.collector.code,
+                country_code=self.collector.country_code,
+                run_type="pricing",
+                limit=limit,
+            )
+            self.session.commit()
+            run_id = run.id
         error_message: Optional[str] = None
 
         logger.info(

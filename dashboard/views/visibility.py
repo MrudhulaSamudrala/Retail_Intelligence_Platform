@@ -10,8 +10,9 @@ from sqlalchemy.orm import Session
 
 from dashboard.components.charts import horizontal_share_bars
 from dashboard.components.filters_ui import select_keyword, select_retailer, select_stratum
-from dashboard.components.layout import card, section_header, status_pill
+from dashboard.components.layout import card, insight_card, section_header, status_pill
 from dashboard.filters import DashboardFilters, to_sov_scope
+from dashboard.insights_text import NO_DATA, search_chart_insight
 from dashboard.presentation import TRACKED_PLATFORM_BRANDS, brand_sort_key, ranked_visibility_available
 from dashboard.queries.collection import filter_option_values, list_search_keywords
 from dashboard.services import retailer_search_coverage, share_of_voice
@@ -21,11 +22,11 @@ def render_search(session: Session, filters: DashboardFilters) -> None:
     with card():
         options = filter_option_values(session)
         keywords = list_search_keywords(session)
-        title_col, pill_col = st.columns([4, 1.4])
+        title_col, pill_col = st.columns([5, 1.4])
         with title_col:
             section_header(
                 "Search Visibility",
-                "Share of Voice across observed search results.",
+                "Who appears most often in observed search results?",
             )
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -72,16 +73,20 @@ def render_search(session: Session, filters: DashboardFilters) -> None:
             category_col="brand",
             value_col="share_pct",
             title="Share of Voice",
-            definition="Brand search-result appearances / total tracked-brand appearances.",
+            definition="",
             source="analytics.share_of_voice",
             filters_label=scoped.label_summary() + (f", Keyword={keyword}" if keyword else ""),
-            x_title="Share of Voice (%)",
+            x_title="Share of voice (%)",
             hover_extra=["appearances"],
             value_is_pct=True,
-            height=260,
+            height=280,
             empty_title="Ranked visibility unavailable",
-            empty_explanation="This retailer's current collection does not provide complete ranked search coverage.",
+            empty_explanation=NO_DATA,
         )
+        if has_metrics:
+            insight_card(search_chart_insight(metrics))
+        else:
+            insight_card(NO_DATA)
 
 
 def render(session: Session, filters: DashboardFilters) -> None:

@@ -55,7 +55,7 @@ def _apply_layout(fig: go.Figure, *, height: int, x_title: str, y_title: str = "
             size=13,
             color=text,
         ),
-        margin=dict(l=4, r=16, t=8, b=8),
+        margin=dict(l=8, r=56, t=8, b=12),
         height=height,
         showlegend=False,
         bargap=0.38,
@@ -84,10 +84,9 @@ def _apply_layout(fig: go.Figure, *, height: int, x_title: str, y_title: str = "
 
 
 def chart_caption(*, metric: str, definition: str, source: str, filters_label: str, denominator: Optional[str] = None) -> None:
-    parts = [definition, f"Filters: {filters_label}"]
-    if denominator:
-        parts.append(f"Denominator: {denominator}")
-    st.caption(" · ".join(parts))
+    del metric, source, filters_label, denominator
+    if definition:
+        st.caption(definition)
 
 
 def empty_chart(
@@ -147,12 +146,23 @@ def horizontal_share_bars(
                 marker=dict(color=BAR_COLOR, line=dict(width=0)),
                 hovertemplate=hover,
                 customdata=custom,
+                text=[
+                    f"{v:.1f}%" if value_is_pct else f"{v:,.2f}"
+                    for v in values
+                ],
+                textposition="outside",
+                cliponaxis=False,
+                textfont=dict(size=12, color=_text_color()),
             )
         ]
     )
     fig_height = height if height is not None else max(220, 32 * len(work) + 48)
     _apply_layout(fig, height=fig_height, x_title=x_title)
     fig.update_xaxes(ticksuffix=suffix if value_is_pct else "", tickformat=tickformat)
+    if values:
+        xmax = max(float(v) for v in values)
+        pad = max(xmax * 0.18, 8 if value_is_pct else xmax * 0.08)
+        fig.update_xaxes(range=[0, xmax + pad])
     st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
     chart_caption(metric=title, definition=definition, source=source, filters_label=filters_label)
 
@@ -236,7 +246,7 @@ def _compliance_ring_figure(ring: dict) -> go.Figure:
                     "<extra></extra>"
                 ),
                 showlegend=False,
-                domain=dict(x=[0.12, 0.88], y=[0.08, 0.88]),
+                domain=dict(x=[0.08, 0.92], y=[0.04, 0.86]),
             )
         ]
     )
@@ -245,7 +255,7 @@ def _compliance_ring_figure(ring: dict) -> go.Figure:
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=8, r=8, t=36, b=8),
-        height=340,
+        height=360,
         title=dict(
             text=brand.upper(),
             font=dict(size=13, color=_text_color()),
@@ -297,11 +307,14 @@ def compliance_donut(rings: Sequence[dict], *, filters_label: str) -> None:
                     continue
                 fig = _compliance_ring_figure(ring)
                 st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
-    st.caption(
-        "PASS green · FAIL red · UNKNOWN gray. Center uses analytics.compliance "
-        "(overall = notebook × 0.85 + desktop × 0.15 when both segments exist; "
-        "otherwise the available segment score). N/A only when the brand has no scored PASS/FAIL. "
-        f"Filters: {filters_label}. Source: `analytics.compliance`."
+    st.markdown(
+        '<div class="ci-legend">'
+        '<span class="ci-legend-chip ci-legend-pass">PASS</span>'
+        '<span class="ci-legend-chip ci-legend-fail">FAIL</span>'
+        '<span class="ci-legend-chip ci-legend-na">NO DATA</span>'
+        '<span class="ci-legend-note">7 checks: S1 · S2 · P1 · P2 · P3 · P4 · P5</span>'
+        "</div>",
+        unsafe_allow_html=True,
     )
 
 

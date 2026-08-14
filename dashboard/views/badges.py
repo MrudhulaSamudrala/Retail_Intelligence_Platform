@@ -1,4 +1,4 @@
-"""Badge Intelligence section."""
+"""Badge Coverage section."""
 
 from __future__ import annotations
 
@@ -31,8 +31,8 @@ def render(
     del filters, collection, refreshed_at
     with card():
         section_header(
-            "Badge Intelligence",
-            "Detected platform-family badges among products that have badge evidence. N/A when there is no evidence.",
+            "Badge Coverage",
+            "Are brand badges being shown consistently?",
         )
         rows = badge_coverage_matrix(session)
         by_brand: dict[str, list[dict]] = {b: [] for b in TRACKED_PLATFORM_BRANDS}
@@ -48,8 +48,11 @@ def render(
             cells = []
             for item in items:
                 cls = _STATE_CLASS.get(item["state"], "ci-cell-na")
-                label = item["display"] if item["state"] == "N/A" else f"{item['display']}"
-                cells.append(f'<td class="{cls}">{label}<br><span style="font-size:0.68rem">{item["state"]}</span></td>')
+                label = item["display"]
+                cells.append(
+                    f'<td class="{cls}">{label}<br>'
+                    f'<span style="font-size:0.68rem">{item["state"]}</span></td>'
+                )
             tables.append(
                 f'<table class="ci-matrix"><thead><tr><th></th>{head}</tr></thead>'
                 f'<tbody><tr><td class="ci-cell-brand">{brand}</td>{"".join(cells)}</tr></tbody></table>'
@@ -57,8 +60,5 @@ def render(
         if tables:
             st.markdown("<div style='display:grid;gap:0.85rem'>" + "".join(tables) + "</div>", unsafe_allow_html=True)
         else:
-            st.caption("No platform-family badge configuration found.")
-        subtle_note(
-            "GOOD ≥ 80% · PARTIAL 50–79% · LOW < 50% · N/A = no badge evidence for that brand. "
-            "Source: stored `badges` rows + config/badges.yaml families."
-        )
+            st.caption("No badge evidence in this collection.")
+        subtle_note("GOOD ≥ 80% · PARTIAL 50–79% · LOW < 50% · N/A — No badge evidence")

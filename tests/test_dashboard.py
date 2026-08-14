@@ -268,6 +268,118 @@ def test_dashboard_vertical_layout_excludes_product_identity():
     assert "Product Identity" not in app_src
     assert "banners.render" in app_src
     assert "sku_explorer.render" in app_src
+    assert "overview.render" in app_src
+    assert "collection_status.render" in app_src
+    assert "reports.render" in app_src
+    order = [line.strip() for line in app_src.splitlines() if ".render(" in line]
+    assert order == [
+        "collection_status.render(collection)",
+        "overview.render(session, filters, collection, refreshed_at)",
+        "share_of_shelf.render(session, filters, collection, refreshed_at)",
+        "visibility.render(session, filters)",
+        "pricing.render(session, filters, collection, refreshed_at)",
+        "compliance.render(session, filters, collection, refreshed_at)",
+        "banners.render(session, filters, collection, refreshed_at)",
+        "attributes.render(session, filters, collection, refreshed_at)",
+        "badges.render(session, filters, collection, refreshed_at)",
+        "sku_explorer.render(session, filters, collection, refreshed_at)",
+        "reports.render()",
+    ]
+    sos = Path("dashboard/views/share_of_shelf.py").read_text(encoding="utf-8")
+    assert "Shelf Presence" in sos
+    assert "Share of Shelf" not in sos.split("section_header", 1)[-1][:200]
+    sku = Path("dashboard/views/sku_explorer.py").read_text(encoding="utf-8")
+    assert "Product Explorer" in sku
+    assert "SKU Explorer" not in sku
+
+
+def test_dynamic_takeaways_use_existing_analytics_not_hardcoded_brands():
+    from types import SimpleNamespace
+    from decimal import Decimal
+
+    from dashboard.insights_text import (
+        NO_DATA,
+        attribute_quality_insight,
+        compliance_gap_lines,
+        compliance_takeaway,
+        search_chart_insight,
+        search_takeaway,
+        shelf_chart_insight,
+        shelf_takeaway,
+    )
+
+    empty_shelf = shelf_takeaway([])
+    assert empty_shelf[1] == NO_DATA
+    shares = [
+        SimpleNamespace(value="Intel", share=Decimal("0.408")),
+        SimpleNamespace(value="AMD", share=Decimal("0.262")),
+    ]
+    title, detail = shelf_takeaway(shares)
+    assert title == "Intel leads shelf presence"
+    assert "40.8%" in detail
+    insight = shelf_chart_insight(shares)
+    assert insight.startswith("Intel leads shelf presence at 40.8%")
+    assert "AMD" in insight and "26.2%" in insight
+
+    amd_shares = [
+        SimpleNamespace(value="AMD", share=0.51),
+        SimpleNamespace(value="Intel", share=0.30),
+    ]
+    assert shelf_takeaway(amd_shares)[0] == "AMD leads shelf presence"
+
+    metrics = [
+        SimpleNamespace(brand="AMD", share_of_voice=Decimal("0.524"), appearances=52),
+        SimpleNamespace(brand="Intel", share_of_voice=Decimal("0.476"), appearances=48),
+    ]
+    stitle, sdetail = search_takeaway(metrics)
+    assert stitle == "AMD leads search visibility"
+    assert "52.4%" in sdetail
+    assert "slightly ahead of Intel" in search_chart_insight(metrics)
+
+    assert compliance_gap_lines([]) == ["No scored checks"]
+    assert compliance_gap_lines([("S1", 1.0), ("P3", 1.0)]) == ["No significant compliance gaps"]
+    assert compliance_gap_lines([("P3", 0.93), ("S1", 1.0)])[0].startswith("P3")
+
+    weakest = {
+        "Intel": [("P3", 0.93), ("S1", 1.0)],
+        "AMD": [("S1", 1.0)],
+        "Qualcomm": [],
+        "Apple": [],
+    }
+    ctitle, cdetail = compliance_takeaway(weakest)
+    assert ctitle == "Intel's main compliance gap"
+    assert "P3" in cdetail and "93%" in cdetail
+
+    coverage = [
+        {"attribute": "Brand", "coverage_pct": 100.0},
+        {"attribute": "Price", "coverage_pct": 100.0},
+        {"attribute": "Storage", "coverage_pct": 72.0},
+    ]
+    attr = attribute_quality_insight(coverage)
+    assert "storage has the lowest coverage" in attr.lower()
+    assert attribute_quality_insight([]) == NO_DATA
+
+
+def test_takeaway_cards_render_html_not_indented_markdown():
+    from unittest.mock import patch
+
+    from dashboard.components.layout import takeaway_cards
+
+    with patch("dashboard.components.layout.st.markdown") as markdown:
+        takeaway_cards(
+            [
+                ("Intel leads shelf presence", "41.0% of eligible gaming products"),
+                ("AMD leads search visibility", "52.4% of tracked-brand appearances"),
+            ]
+        )
+    markdown.assert_called_once()
+    html_content, kwargs = markdown.call_args[0][0], markdown.call_args.kwargs
+    assert kwargs.get("unsafe_allow_html") is True
+    assert html_content.startswith('<div class="ci-takeaways">')
+    assert "\n            <div" not in html_content
+    assert '<div class="ci-takeaway">' in html_content
+    assert "Intel leads shelf presence" in html_content
+    assert "AMD leads search visibility" in html_content
 
 
 def test_extract_product_specs_and_badge_states():

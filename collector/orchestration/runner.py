@@ -94,6 +94,8 @@ class ProductionRunResult:
     products_after: int = 0
     validation: dict[str, Any] = field(default_factory=dict)
     error_summary: Optional[str] = None
+    report_status: Optional[str] = None
+    report_error: Optional[str] = None
 
     @property
     def exit_code(self) -> int:
@@ -605,7 +607,44 @@ class ProductionRunner:
                 products_after=products_after,
                 error_summary=error_summary,
             )
+            logger.info(
+                "collection_completed",
+                extra={
+                    "event": "collection_completed",
+                    "run_id": run.id,
+                    "status": overall,
+                },
+            )
             print_production_summary(result, product_details)
+            if overall in (STATUS_SUCCESS, STATUS_PARTIAL):
+                try:
+                    report_result = _attempt_reports(self.session, run.id)
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception(
+                        "report_generation_failed",
+                        extra={
+                            "event": "report_generation_failed",
+                            "run_id": run.id,
+                            "error": str(exc),
+                        },
+                    )
+                    from reporting.generate import ReportGenerationResult
+
+                    report_result = ReportGenerationResult(
+                        run_id=run.id,
+                        status="FAILED",
+                        error_message=f"{type(exc).__name__}: {exc}",
+                    )
+                result.report_status = report_result.status
+                result.report_error = report_result.error_message
+                print()
+                print(f"Report:              {report_result.status}")
+                if report_result.excel_path:
+                    print(f"Excel:               {report_result.excel_path}")
+                if report_result.psv_path:
+                    print(f"PSV:                 {report_result.psv_path}")
+                if report_result.error_message:
+                    print(f"Report error:        {report_result.error_message}")
             return result
 
     def _install_signal_handlers(self) -> None:
@@ -717,6 +756,27 @@ def print_production_summary(
             continue
         print(
             f"[{key:<16}] {step.status:<8} {step.records_processed} records"
+        )
+
+
+def _attempt_reports(session: Session, run_id: int):
+    from reporting.generate import ReportGenerationResult, generate_reports_for_run
+
+    try:
+        return generate_reports_for_run(session, run_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "report_generation_failed",
+            extra={
+                "event": "report_generation_failed",
+                "run_id": run_id,
+                "error": str(exc),
+            },
+        )
+        return ReportGenerationResult(
+            run_id=run_id,
+            status="FAILED",
+            error_message=f"{type(exc).__name__}: {exc}",
         )
 
 

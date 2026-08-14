@@ -65,6 +65,10 @@ class CollectionRunRepository:
         items_collected: int = 0,
         error_message: Optional[str] = None,
     ) -> CollectionRun:
+        # Component collectors must not finalize the parent production run.
+        # The orchestrator writes overall status after every step finishes.
+        if (run.run_type or "").lower() == "production":
+            return run
         run.status = status
         run.items_collected = items_collected
         run.error_message = error_message

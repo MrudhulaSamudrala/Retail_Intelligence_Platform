@@ -69,6 +69,29 @@ def insight_card(text: str, *, label: str = "Insight") -> None:
     )
 
 
+def takeaway_cards(items: list[tuple[str, str]]) -> None:
+    cards = []
+    for title, detail in items:
+        cards.append(
+            '<div class="ci-takeaway">'
+            f'<div class="ci-takeaway-title">{html.escape(title)}</div>'
+            f'<div class="ci-takeaway-detail">{html.escape(detail)}</div>'
+            "</div>"
+        )
+    st.markdown(
+        f'<div class="ci-takeaways">{"".join(cards)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def compact_legend(items: list[tuple[str, str]]) -> None:
+    chips = "".join(
+        f'<span class="ci-legend-chip ci-legend-{html.escape(kind)}">{html.escape(label)}</span>'
+        for kind, label in items
+    )
+    st.markdown(f'<div class="ci-legend">{chips}</div>', unsafe_allow_html=True)
+
+
 def section_gap() -> None:
     st.markdown("<div class='ci-section-gap'></div>", unsafe_allow_html=True)
 

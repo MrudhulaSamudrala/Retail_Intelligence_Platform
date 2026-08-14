@@ -1,0 +1,14 @@
+# Single source of truth for BridgeAI production collection times.
+# Windows Task Scheduler, the collector launcher, and the dashboard
+# all read this file. Change hours here — do not scatter times in scripts.
+
+schedule:
+  hours: [8, 14, 20]
+  minute: 0
+  # "local" = the machine timezone (Windows Task Scheduler default).
+  # Or a named IANA zone such as UTC, America/New_York, Asia/Kolkata.
+  timezone: local
+  task_name: "BridgeAI - Production Collection"
+  log_dir: logs/collections
+  python_module: collector.run
+  python_args: ["--all"]
