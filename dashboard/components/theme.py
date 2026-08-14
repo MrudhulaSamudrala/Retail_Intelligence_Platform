@@ -385,6 +385,67 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     font-size: 0.82rem;
     margin: 0.15rem 0;
 }
+.ci-comp-kpis {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0 0 1.15rem 0;
+}
+div[data-testid="stHorizontalBlock"]:has(.ci-comp-brand) > div {
+    border: 1px solid var(--ci-border);
+    border-radius: var(--ci-radius);
+    padding: 0.55rem 0.65rem 0.45rem;
+    background: var(--ci-card);
+    box-sizing: border-box;
+}
+.ci-comp-brand-name {
+    font-size: 0.72rem;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ci-muted);
+    margin: 0.15rem 0 0.15rem 0;
+}
+.ci-comp-stats {
+    margin: 0.15rem 0 0.35rem 0;
+}
+.ci-comp-stat {
+    font-size: 0.82rem;
+    color: var(--ci-text);
+    line-height: 1.45;
+}
+.ci-comp-pass { color: #166534; }
+.ci-comp-fail { color: #991b1b; }
+.ci-comp-na { color: #737373; }
+.ci-comp-table-wrap {
+    overflow-x: auto;
+    max-width: 100%;
+    margin: 0.35rem 0 1rem 0;
+}
+.ci-comp-table { margin: 0; }
+.ci-comp-table th:nth-child(1),
+.ci-comp-table td:nth-child(1),
+.ci-comp-table th:nth-child(2),
+.ci-comp-table td:nth-child(2) {
+    text-align: left;
+}
+.ci-comp-loss {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0.35rem 0 0.85rem 0;
+}
+.ci-comp-loss-card {
+    border: 1px solid var(--ci-border);
+    border-radius: var(--ci-radius);
+    padding: 0.75rem 0.85rem;
+    background: var(--ci-card);
+}
+.ci-comp-loss-item {
+    font-size: 0.82rem;
+    line-height: 1.5;
+    margin: 0.2rem 0 0 0;
+}
 .ci-matrix {
     width: 100%;
     border-collapse: collapse;
@@ -416,11 +477,18 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     .ci-takeaways { grid-template-columns: 1fr; }
     .ci-price-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .ci-weak { grid-template-columns: 1fr; }
+    .ci-comp-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 700px) {
     .ci-kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .ci-banner-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .ci-price-kpis { grid-template-columns: 1fr; }
+    .ci-comp-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ci-comp-loss { grid-template-columns: 1fr; }
+    div[data-testid="stHorizontalBlock"]:has(.ci-comp-brand) {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
 }
 div[data-testid="stDataFrame"] {
     border: 1px solid var(--ci-border);

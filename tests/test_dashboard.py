@@ -550,11 +550,127 @@ def test_compliance_center_uses_existing_segment_score_when_overall_is_null():
         labels = list(fig.data[0].labels)
         assert labels == list(CHECK_CODES)
         assert len(fig.data[0].values) == 7
-        assert fig.layout.height >= 300
+        assert list(fig.data[0].values) == [1] * 7
+        assert fig.data[0].type == "pie"
+        assert 0.4 < float(fig.data[0].hole) < 0.8
+        assert fig.layout.height <= 260
         pie = fig.data[0]
         domain = pie.domain
         assert domain.x[1] - domain.x[0] <= 1
         assert domain.y[1] - domain.y[0] <= 1
+        assert abs((domain.x[1] - domain.x[0]) - (domain.y[1] - domain.y[0])) < 0.01
+
+
+def test_brand_compliance_section_presentation_uses_existing_scores():
+    from analytics.compliance.config import CHECK_CODES
+    from analytics.compliance.models import AuditScoreRow
+    from analytics.compliance.scoring import compute_brand_scores, compute_compliance_score
+    from dashboard.components.charts import _compliance_ring_figure
+    from dashboard.presentation import (
+        CHECK_LABELS,
+        TRACKED_PLATFORM_BRANDS,
+        format_center_percent,
+        format_check_status_cell,
+        lowest_scored_checks,
+        status_color,
+    )
+    from dashboard.views.compliance import build_compliance_presentation
+
+    intel_rows = [
+        AuditScoreRow(
+            brand="Intel",
+            retailer_code="newegg",
+            country_code="US",
+            product_type="notebook",
+            check_code=code,
+            result="PASS" if code != "P2" else "FAIL",
+            product_id=1,
+        )
+        for code in CHECK_CODES
+    ]
+    amd_rows = [
+        AuditScoreRow(
+            brand="AMD",
+            retailer_code="newegg",
+            country_code="US",
+            product_type="notebook",
+            check_code=code,
+            result="PASS" if code not in {"P2", "S2"} else "FAIL",
+            product_id=2,
+        )
+        for code in CHECK_CODES
+    ]
+    rows = intel_rows + amd_rows
+    overall = compute_compliance_score(rows)
+    scores = compute_brand_scores(rows)
+    model = build_compliance_presentation(overall, scores)
+
+    assert [b.brand for b in model.brands] == list(TRACKED_PLATFORM_BRANDS)
+    assert list(CHECK_CODES) == ["S1", "S2", "P1", "P2", "P3", "P4", "P5"]
+    assert all(code in CHECK_LABELS for code in CHECK_CODES)
+
+    intel = next(b for b in model.brands if b.brand == "Intel")
+    amd = next(b for b in model.brands if b.brand == "AMD")
+    qualcomm = next(b for b in model.brands if b.brand == "Qualcomm")
+    apple = next(b for b in model.brands if b.brand == "Apple")
+
+    assert intel.has_scored_checks is True
+    assert amd.has_scored_checks is True
+    assert qualcomm.has_scored_checks is False
+    assert apple.has_scored_checks is False
+    assert format_center_percent(qualcomm.center_score) == "N/A"
+    assert format_center_percent(apple.center_score) == "N/A"
+    assert qualcomm.coverage_label == "—"
+    assert "0%" not in format_center_percent(qualcomm.center_score)
+    for row in qualcomm.check_rows:
+        assert row["cell"] == "N/A —"
+        assert "0%" not in row["cell"]
+
+    assert intel.lowest == lowest_scored_checks(intel.ranked, limit=3)
+    assert intel.lowest[0][0] == "P2"
+    assert intel.lowest[0][1] == intel.ranked[0][1]
+    assert intel.lowest == sorted(intel.lowest, key=lambda item: item[1])
+    assert amd.lowest[0][1] <= amd.lowest[-1][1]
+    assert set(code for code, _ in intel.ranked) <= set(CHECK_CODES)
+
+    p2_intel = next(r for r in intel.check_rows if r["code"] == "P2")
+    s1_intel = next(r for r in intel.check_rows if r["code"] == "S1")
+    assert p2_intel["status"] == "FAIL"
+    assert "✕" in p2_intel["cell"]
+    assert s1_intel["status"] == "PASS"
+    assert "✓" in s1_intel["cell"]
+    assert status_color("PASS") != status_color("FAIL") != status_color("UNKNOWN")
+
+    na_text, na_status = format_check_status_cell(0, 0, 5)
+    assert na_text == "N/A —"
+    assert na_status == "UNKNOWN"
+    assert "0%" not in na_text
+    zero_fail_text, zero_fail_status = format_check_status_cell(0, 4, 0)
+    assert zero_fail_status == "FAIL"
+    assert zero_fail_text.startswith("0%")
+
+    for brand in model.brands:
+        fig = _compliance_ring_figure(brand.ring)
+        pie = fig.data[0]
+        assert list(pie.labels) == list(CHECK_CODES)
+        assert list(pie.values) == [1] * 7
+        assert pie.type == "pie"
+        assert pie.hole >= 0.5
+        domain = pie.domain
+        assert abs((domain.x[1] - domain.x[0]) - (domain.y[1] - domain.y[0])) < 0.01
+        annotation = fig.layout.annotations[0].text
+        if brand.center_score is None:
+            assert "N/A" in annotation
+            assert "0%" not in annotation
+        else:
+            assert "%" in annotation
+
+    assert overall.coverage.pass_count == model.pass_count
+    assert overall.coverage.fail_count == model.fail_count
+    assert overall.coverage.unknown_count == model.unknown_count
+    recomputed = compute_compliance_score(rows)
+    assert recomputed.overall_score == overall.overall_score
+    assert recomputed.coverage.pass_count == overall.coverage.pass_count
 
 
 def test_db_connection_probe_optional():

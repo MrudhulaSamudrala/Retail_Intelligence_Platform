@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Sequence
 
 RETAILER_LABELS = {
     "newegg": "Newegg",
@@ -142,6 +142,39 @@ def format_coverage_cell(pass_count: int, fail_count: int, unknown_count: int) -
     if total <= 0:
         return "—"
     return f"{scored}/{total}"
+
+
+def format_check_status_cell(pass_count: int, fail_count: int, unknown_count: int) -> tuple[str, str]:
+    """Visible check cell: existing pass rate plus PASS/FAIL/NO DATA marker.
+
+    N/A when there are no scored (PASS/FAIL) observations — never rendered as 0%.
+    """
+    status = check_visual_status(pass_count, fail_count, unknown_count)
+    scored = pass_count + fail_count
+    if scored <= 0:
+        return "N/A —", "UNKNOWN"
+    rate = 100.0 * pass_count / scored
+    if status == "PASS":
+        return f"{rate:.0f}% ✓", "PASS"
+    if status == "FAIL":
+        return f"{rate:.0f}% ✕", "FAIL"
+    return "N/A —", "UNKNOWN"
+
+
+def lowest_scored_checks(
+    ranked: Sequence[tuple[str, float]],
+    *,
+    limit: int = 3,
+) -> list[tuple[str, float]]:
+    """First *limit* checks from an already lowest-to-highest scored list."""
+    return list(ranked)[:limit]
+
+
+def format_center_percent(score: Optional[float]) -> str:
+    """Ring/KPI percent text. Missing scores are N/A, never 0%."""
+    if score is None:
+        return "N/A"
+    return f"{float(score) * 100:.0f}%"
 
 
 def status_color(status: str) -> str:

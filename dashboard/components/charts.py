@@ -225,7 +225,7 @@ def _compliance_ring_figure(ring: dict) -> go.Figure:
             go.Pie(
                 labels=[item["code"] for item in ordered],
                 values=[1] * len(ordered),
-                hole=0.58,
+                hole=0.62,
                 sort=False,
                 direction="clockwise",
                 rotation=90,
@@ -234,7 +234,7 @@ def _compliance_ring_figure(ring: dict) -> go.Figure:
                 textinfo="text",
                 textposition="inside",
                 insidetextorientation="horizontal",
-                textfont=dict(size=11, color="#171717"),
+                textfont=dict(size=9, color="#171717"),
                 customdata=custom,
                 hovertemplate=(
                     "<b>%{customdata[0]}</b><br>"
@@ -246,7 +246,7 @@ def _compliance_ring_figure(ring: dict) -> go.Figure:
                     "<extra></extra>"
                 ),
                 showlegend=False,
-                domain=dict(x=[0.08, 0.92], y=[0.04, 0.86]),
+                domain=dict(x=[0.12, 0.88], y=[0.12, 0.88]),
             )
         ]
     )
@@ -254,68 +254,43 @@ def _compliance_ring_figure(ring: dict) -> go.Figure:
         autosize=True,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=8, r=8, t=36, b=8),
-        height=360,
-        title=dict(
-            text=brand.upper(),
-            font=dict(size=13, color=_text_color()),
-            x=0.5,
-            xanchor="center",
-            y=0.98,
-            yanchor="top",
-        ),
+        margin=dict(l=4, r=4, t=4, b=4),
+        height=220,
+        title=None,
         font=dict(family="Inter, sans-serif", size=11, color=_text_color()),
         annotations=[
             dict(
                 text=center,
                 x=0.5,
-                y=0.48,
+                y=0.5,
                 xref="paper",
                 yref="paper",
                 showarrow=False,
-                font=dict(size=18, color=_text_color()),
+                font=dict(size=16, color=_text_color()),
             )
         ],
         hoverlabel=dict(bgcolor="#111111", font_size=12, font_color="#fafafa"),
-        uniformtext_minsize=10,
+        uniformtext_minsize=8,
         uniformtext_mode="show",
     )
     return fig
 
 
 def compliance_donut(rings: Sequence[dict], *, filters_label: str) -> None:
-    """Canonical brand-compliance visualization: one ring per brand, seven check segments.
-
-    Segment size is equal so color (PASS/FAIL/UNKNOWN) carries the meaning.
-    Center text is the existing overall score, or N/A when that score is missing.
-    """
+    """Compact full-circle rings (seven equal check segments). Layout lives in the view."""
+    del filters_label
     if not rings:
         empty_chart(
             "N/A — No data",
             explanation="No brand compliance rings to display for this collection.",
         )
         return
-
-    for row_start in range(0, len(rings), 2):
-        cols = st.columns(2, gap="large")
-        row = list(rings[row_start : row_start + 2])
-        while len(row) < 2:
-            row.append(None)
-        for col, ring in zip(cols, row):
-            with col:
-                if ring is None:
-                    continue
-                fig = _compliance_ring_figure(ring)
-                st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
-    st.markdown(
-        '<div class="ci-legend">'
-        '<span class="ci-legend-chip ci-legend-pass">PASS</span>'
-        '<span class="ci-legend-chip ci-legend-fail">FAIL</span>'
-        '<span class="ci-legend-chip ci-legend-na">NO DATA</span>'
-        '<span class="ci-legend-note">7 checks: S1 · S2 · P1 · P2 · P3 · P4 · P5</span>'
-        "</div>",
-        unsafe_allow_html=True,
-    )
+    for ring in rings:
+        st.plotly_chart(
+            _compliance_ring_figure(ring),
+            use_container_width=True,
+            config=PLOTLY_CONFIG,
+        )
 
 
 def time_series(df: pd.DataFrame, *, y: str, title: str, source: str, filters_label: str) -> None:
